@@ -1,0 +1,3 @@
+[env]
+# Use bundled bindings to avoid bindgen issues with _IO_FILE struct size
+WHISPER_DONT_GENERATE_BINDINGS = "1"

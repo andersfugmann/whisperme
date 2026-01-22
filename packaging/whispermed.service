@@ -1,0 +1,21 @@
+[Unit]
+Description=WhisperMe Speech-to-Text Daemon
+Documentation=man:whispermed(1)
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/whispermed
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.config/whisperme
+ReadWritePaths=%h/.local/share/whisperme
+PrivateTmp=true
+SupplementaryGroups=audio
+
+[Install]
+WantedBy=default.target

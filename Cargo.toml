@@ -1,0 +1,32 @@
+[package]
+name = "whisperme"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "whispermed"
+path = "src/bin/whispermed.rs"
+
+[[bin]]
+name = "whisperme"
+path = "src/bin/whisperme.rs"
+
+[[bin]]
+name = "whisperme-config"
+path = "src/bin/whisperme-config.rs"
+
+[dependencies]
+rust-ini = "*"
+tokio = { version = "*", features = ["rt", "time"] }  # Minimal: only for pulseaudio crate
+pulseaudio = "*"
+nnnoiseless = "0.5"
+whisper-rs = { path = "vendor/whisper-rs", optional = true, features = ["vulkan"] }
+eframe = "*"
+spectrum-analyzer = "*"
+circular-buffer = "*"
+ureq = "*"
+winit = { version = "0.30.12", features = ["wayland", "x11"] }
+
+[features]
+default = ["whisper"]
+whisper = ["dep:whisper-rs"]
