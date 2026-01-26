@@ -1,0 +1,80 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., 1.0.0)'
+        required: true
+        type: string
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xdotool libxdo-dev libasound2-dev libclang-dev devscripts debhelper
+
+      - name: Setup Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Update debian changelog
+        run: |
+          # Get the previous tag
+          PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          
+          # Generate changelog entries from commits since last tag
+          if [ -n "$PREV_TAG" ]; then
+            CHANGES=$(git log --pretty=format:"  * %s" "$PREV_TAG"..HEAD)
+          else
+            CHANGES=$(git log --pretty=format:"  * %s")
+          fi
+          
+          # Create new changelog entry
+          cat > /tmp/changelog_entry << EOF
+          whisperme (${{ inputs.version }}) unstable; urgency=medium
+
+          ${CHANGES}
+
+           -- GitHub Actions <github-actions[bot]@users.noreply.github.com>  $(date -R)
+
+          EOF
+          
+          # Prepend to existing changelog
+          cat /tmp/changelog_entry debian/changelog > /tmp/new_changelog
+          mv /tmp/new_changelog debian/changelog
+          
+          git add debian/changelog
+          git commit -m "Release v${{ inputs.version }}"
+
+      - name: Create and push tag
+        run: |
+          git tag -a "v${{ inputs.version }}" -m "Release v${{ inputs.version }}"
+          git push origin HEAD:main
+          git push origin "v${{ inputs.version }}"
+
+      - name: Build debian package
+        run: make deb
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ inputs.version }}
+          name: Release v${{ inputs.version }}
+          generate_release_notes: true
+          files: ../whisperme_${{ inputs.version }}_*.deb
