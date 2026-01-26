@@ -56,7 +56,6 @@ Follow the guidelines below strictly.
 
 - Think carefully about ownership
 - Prefer `Arc<T>` for data shared between threads
-- Clone freely rather than fighting the borrow checker
 - Use owned types in channel messages
 - Prefer moving data over borrowing across thread boundaries
 
@@ -75,6 +74,8 @@ Follow the guidelines below strictly.
 - Test properties, not specific cases
 - Focus on places where things can go wrong
 - Property-based testing where applicable
+- No compiler warnings or dead code must be present in the code.
+- Never use compiler annotation to silence compiler warnings
 
 ---
 
