@@ -4,6 +4,7 @@ use std::sync::mpsc as std_mpsc;
 use std::thread::{self, JoinHandle};
 
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, WhisperSegment, WhisperState};
+use winit::event_loop::EventLoopClosed;
 
 use crate::audio::{AudioReceiver, SAMPLE_RATE};
 use crate::config::{TranscriptionConfig, WhisperConfig};
@@ -115,9 +116,9 @@ fn process_audio(
             if audio_buffer.len() < MIN_AUDIO_SAMPLES {
                 let samples_needed = MIN_AUDIO_SAMPLES - audio_buffer.len();
                 let samples_needed_ms = samples_needed * 1000 / SAMPLE_RATE as usize;
-                std::cmp::max(samples_needed_ms, config.chunk_interval_ms)
+                std::cmp::max(samples_needed_ms, config.transcription_interval_ms)
             } else {
-                config.chunk_interval_ms
+                config.transcription_interval_ms
             };
         let (new_chunk, closed) = collect_audio_for(&audio_rx, record_for_ms);
         recording = !closed;
@@ -136,21 +137,13 @@ fn process_audio(
         }
 
         if language.is_none() {
-            match detect_language(ctx, &audio_buffer) {
-                Ok((detected_lang, confidence)) => {
-                    if confidence >= config.language_confidence
-                        || !recording {
-                            println!("*** => Language detected: {} (confidence: {:.0}%)", detected_lang, confidence * 100.0);
-                            language = Some(detected_lang);
-                        } else {
-                            eprintln!("*** => Language detection in progress");
-                            continue;
-                        }
-                }
-                Err(e) => {
-                    eprintln!("*** => Language detection failed: {}, defaulting to English", e);
-                    language = Some("en".to_string());
-                }
+            let (detected_lang, confidence) = detect_language(ctx, &audio_buffer);
+            if confidence >= config.language_confidence || !recording {
+                println!("*** => Language detected: {} (confidence: {:.0}%)", detected_lang, confidence * 100.0);
+                language = Some(detected_lang);
+            } else {
+                eprintln!("*** => Language detection in progress");
+                continue;
             }
         }
         let lang = language.as_ref().unwrap();
@@ -158,7 +151,14 @@ fn process_audio(
         let grace_ms : usize = if recording { config.emit_grace_ms } else { 0 };
         let emit_threshold_ms = current_audio_duration_ms - grace_ms;
         eprintln!("*** => Grace ms = {}. Total_time: {}", emit_threshold_ms, total_samples as f32 / SAMPLE_RATE as f32);
-        // Should be a fold to find the last value
+
+        // Todo
+        // Should hold all segments not emitted.
+        // When getting new segments, test if the segment has been extended
+        // and reuse previously calculated segment if the additional tokens are silence.
+        // Example: Input one, two, thee, <silence>
+        // Transcribed 1, 2, 3.
+        // Transcribed 1, 2, 3, 4, 5.
         let last_emitted_end_ms = transcribe(ctx, &audio_buffer, lang)
             .as_iter()
             .fold(0, |acc: usize, segment : WhisperSegment| {
@@ -218,21 +218,18 @@ fn collect_audio_for(audio_rx: &AudioReceiver, time_ms: usize) -> (Vec<f32>, boo
 
 /// Detects language from audio buffer.
 /// Returns (language_code, confidence).
-fn detect_language(ctx: &WhisperContext, audio: &[f32]) -> Result<(String, f32), String> {
-    let mut state = ctx.create_state().map_err(|e| format!("{:?}", e))?;
-
+fn detect_language(ctx: &WhisperContext, audio: &[f32]) -> (String, f32) {
+    let mut state = ctx.create_state().expect("Could not create state for language detection");
     // Convert to mel spectrogram first
-    state.pcm_to_mel(audio, 1).map_err(|e| format!("{:?}", e))?;
+    state.pcm_to_mel(audio, 1).expect("Cannot send audio to model");
 
     // Detect language
-    let (lang_id, probs) = state.lang_detect(0, 1).map_err(|e| format!("{:?}", e))?;
-
-    let lang_str = whisper_rs::get_lang_str(lang_id)
-        .ok_or_else(|| format!("Unknown language id: {}", lang_id))?;
+    let (lang_id, probs) = state.lang_detect(0, 1).expect("Language detection failed");
+    let lang_str = whisper_rs::get_lang_str(lang_id).expect("Unknown language");
 
     let confidence = probs.get(lang_id as usize).copied().unwrap_or(0.0);
+    (confidence, lang_str.to_string());
 
-    Ok((lang_str.to_string(), confidence))
 }
 
 /// Transcribes audio buffer and returns segments with timestamps.

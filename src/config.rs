@@ -27,6 +27,7 @@ impl std::str::FromStr for UiPosition {
         Ok(match s.to_lowercase().as_str() {
             "bottom-left" => Self::BottomLeft,
             "bottom-center" => Self::BottomCenter,
+            "bottom-right" => Self::BottomRight,
             "top-right" => Self::TopRight,
             "top-center" => Self::TopCenter,
             "top-left" => Self::TopLeft,
@@ -44,7 +45,7 @@ pub struct UiConfig {
 #[derive(Debug, Clone)]
 pub struct TranscriptionConfig {
     /// How long to buffer audio before each transcription attempt (ms).
-    pub chunk_interval_ms: usize,
+    pub transcription_interval_ms: usize,
     /// Segments must end this many ms before audio end to be emitted.
     pub emit_grace_ms: usize,
     /// Language detection confidence threshold (0.0 - 1.0).
@@ -56,10 +57,10 @@ pub struct TranscriptionConfig {
 impl Default for TranscriptionConfig {
     fn default() -> Self {
         Self {
-            chunk_interval_ms: 1000,
+            transcription_interval_ms: 1000,
             emit_grace_ms: 1200,
             language_confidence: 0.7,
-            silence_rms_threshold: 0.0001,
+            silence_rms_threshold: 0.00001,
         }
     }
 }
@@ -137,10 +138,10 @@ impl Config {
             .and_then(|s| s.parse().ok())
             .unwrap_or(UiPosition::TopCenter);
 
-        let chunk_interval_ms = transcription_section
-            .and_then(|s| s.get("chunk_interval_ms"))
+        let transcription_interval_ms = transcription_section
+            .and_then(|s| s.get("transcription_interval_ms"))
             .and_then(|s| s.parse().ok())
-            .unwrap_or(defaults.chunk_interval_ms);
+            .unwrap_or(defaults.transcription_interval_ms);
 
         let emit_grace_ms = transcription_section
             .and_then(|s| s.get("emit_grace_ms"))
@@ -168,7 +169,7 @@ impl Config {
                 position: ui_position,
             },
             transcription: TranscriptionConfig {
-                chunk_interval_ms,
+                transcription_interval_ms,
                 emit_grace_ms,
                 language_confidence,
                 silence_rms_threshold,

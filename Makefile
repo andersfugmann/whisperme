@@ -12,7 +12,7 @@
 #
 # Note: WHISPER_DONT_GENERATE_BINDINGS=1 is set in .cargo/config.toml
 
-.PHONY: all build release build-release test run clean install deps deps-system deps-model deps-submodules help
+.PHONY: all build release build-release test run clean install deps deps-system deps-model deps-submodules deb help
 
 # Default target
 all: build
@@ -149,6 +149,16 @@ clean:
 	rm -f $(DEPS_MARKER)
 
 #------------------------------------------------------------------------------
+# Debian package target
+#------------------------------------------------------------------------------
+
+deb: $(SUBMODULE_MARKER)
+	dpkg-buildpackage -us -uc -b
+	@echo ""
+	@echo "Debian package created in parent directory:"
+	@ls -la ../whisperme_*.deb 2>/dev/null || echo "  (check parent directory for .deb file)"
+
+#------------------------------------------------------------------------------
 # Help
 #------------------------------------------------------------------------------
 
@@ -164,6 +174,7 @@ help:
 	@echo "  test      - Run all tests"
 	@echo "  run       - Run the daemon"
 	@echo "  install   - Install to ~/.local/bin"
+	@echo "  deb       - Build Debian package"
 	@echo "  clean     - Clean build artifacts"
 	@echo "  help      - Show this help"
 	@echo ""

@@ -1,0 +1,18 @@
+Source: whisperme
+Section: utils
+Priority: optional
+Maintainer: Anders Fugmann <anders@fugmann.net>
+Build-Depends: debhelper (>= 12), rustup, libpulse-dev, cmake, pkg-config
+Standards-Version: 4.5.0
+Homepage: https://github.com/andersfugmann/whisperme
+
+Package: whisperme
+Architecture: amd64
+Depends: ${shlibs:Depends}, ${misc:Depends}, xdotool, pulseaudio
+Description: Speech-to-text daemon using Whisper
+ WhisperMe is a Linux speech-to-text daemon that captures audio from
+ PulseAudio, applies RNNoise noise cancellation, transcribes using
+ whisper.cpp, and types the result into the focused window via xdotool.
+ .
+ Features include real-time streaming transcription, configurable UI
+ indicator, and support for multiple Whisper models.

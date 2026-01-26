@@ -1,0 +1,26 @@
+#!/usr/bin/make -f
+
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+export CARGO_HOME = $(CURDIR)/debian/cargo
+
+%:
+	dh $@
+
+override_dh_auto_configure:
+	# Initialize git submodules
+	git submodule update --init --recursive
+
+override_dh_auto_build:
+	cargo build --release
+
+override_dh_auto_install:
+	install -D -m 755 target/release/whispermed $(CURDIR)/debian/whisperme/usr/bin/whispermed
+	install -D -m 755 target/release/whisperme $(CURDIR)/debian/whisperme/usr/bin/whisperme
+	install -D -m 755 target/release/whisperme-config $(CURDIR)/debian/whisperme/usr/bin/whisperme-config
+
+override_dh_auto_clean:
+	cargo clean || true
+	rm -rf $(CARGO_HOME)
+
+override_dh_auto_test:
+	# Skip tests during package build
