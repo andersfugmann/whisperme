@@ -1,20 +1,23 @@
-//! Audio capture using PulseAudio with noise cancellation.
+//! Audio capture using PipeWire with noise cancellation.
 //!
-//! Pipeline: PulseAudio (48kHz) → RNNoise → Resample (16kHz) → Output
+//! Pipeline: PipeWire (48kHz) → RNNoise → Resample (16kHz) → Output
+//!
+//! Architecture:
+//! - PipeWire thread: runs MainLoop, callback copies samples to raw_tx
+//! - Processor thread: blocks on raw_rx, applies RNNoise + Rubato, sends to audio_tx
 
-use pulseaudio::protocol::{ChannelMap, ChannelPosition, RecordStreamParams, SampleFormat, SampleSpec};
-use pulseaudio::protocol::stream::BufferAttr;
-use pulseaudio::Client;
-use std::ffi::CString;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{mpsc, Arc};
-use std::thread;
+use std::mem;
+use std::sync::mpsc;
+use std::thread::{self, JoinHandle};
 
-use nnnoiseless::DenoiseState;
-use rubato::{Async, FixedAsync, SincInterpolationType, SincInterpolationParameters, WindowFunction, Resampler};
 use audioadapter_buffers::direct::SequentialSliceOfVecs;
-
-use crate::UnwrapOrExit;
+use nnnoiseless::DenoiseState;
+use pipewire as pw;
+use pw::spa::param::audio::{AudioFormat, AudioInfoRaw};
+use pw::spa::pod::Pod;
+use pw::spa::utils::Direction;
+use pw::stream::StreamFlags;
+use rubato::{Async, FixedAsync, Resampler, SincInterpolationParameters, SincInterpolationType, WindowFunction};
 
 pub type AudioSample = f32;
 pub type AudioSender = mpsc::Sender<AudioSample>;
@@ -26,36 +29,158 @@ pub const SAMPLE_RATE: u32 = 16000;
 /// Capture sample rate for RNNoise (must be 48kHz)
 const CAPTURE_RATE: u32 = 48000;
 
-/// Fragment size in milliseconds - how often PulseAudio delivers audio
-const FRAGMENT_MS: u32 = 20;
+/// Control message for PipeWire thread
+#[derive(Debug)]
+enum ControlMessage {
+    Stop,
+}
 
 /// Handle for audio capture.
 pub struct AudioCapture {
-    stop_flag: Arc<AtomicBool>,
-    _handle: thread::JoinHandle<()>,
+    stop_sender: pw::channel::Sender<ControlMessage>,
+    pipewire_handle: Option<JoinHandle<()>>,
+    processor_handle: Option<JoinHandle<()>>,
 }
 
 impl AudioCapture {
     /// Creates audio capture with noise cancellation.
     /// Sends 16kHz mono f32 samples to the provided sender.
-    pub fn new(sample_tx: AudioSender) -> Self {
-        let stop_flag = Arc::new(AtomicBool::new(false));
-        let stop_flag_clone = stop_flag.clone();
+    pub fn new(audio_tx: AudioSender) -> Self {
+        pw::init();
 
-        let handle = thread::spawn(move || {
-            run_capture(sample_tx, stop_flag_clone);
+        let (stop_sender, stop_receiver) = pw::channel::channel::<ControlMessage>();
+        let (raw_tx, raw_rx) = mpsc::channel::<f32>();
+
+        let pipewire_handle = thread::spawn(move || {
+            run_pipewire_capture(stop_receiver, raw_tx);
+        });
+
+        let processor_handle = thread::spawn(move || {
+            run_processor(raw_rx, audio_tx);
         });
 
         Self {
-            stop_flag,
-            _handle: handle,
+            stop_sender,
+            pipewire_handle: Some(pipewire_handle),
+            processor_handle: Some(processor_handle),
+        }
+    }
+
+    /// Explicitly stop audio capture and wait for threads to exit.
+    /// Idempotent - safe to call multiple times.
+    pub fn stop(&mut self) {
+        if self.pipewire_handle.is_some() {
+            self.stop_sender.send(ControlMessage::Stop).expect("pipewire thread died");
+        }
+
+        if let Some(handle) = self.pipewire_handle.take() {
+            handle.join().expect("pipewire thread panicked");
+        }
+        if let Some(handle) = self.processor_handle.take() {
+            handle.join().expect("processor thread panicked");
         }
     }
 }
 
 impl Drop for AudioCapture {
     fn drop(&mut self) {
-        self.stop_flag.store(true, Ordering::SeqCst);
+        self.stop();
+    }
+}
+
+/// PipeWire capture thread - runs MainLoop, sends individual samples to raw_tx
+fn run_pipewire_capture(stop_receiver: pw::channel::Receiver<ControlMessage>, raw_tx: mpsc::Sender<f32>) {
+    let mainloop = pw::main_loop::MainLoopRc::new(None).expect("failed to create PipeWire MainLoop");
+    let context = pw::context::ContextRc::new(&mainloop, None).expect("failed to create PipeWire context");
+    let core = context.connect_rc(None).expect("failed to connect to PipeWire");
+
+    // Attach stop receiver to mainloop
+    let _stop_listener = stop_receiver.attach(mainloop.loop_(), {
+        let mainloop = mainloop.clone();
+        move |_msg| {
+            mainloop.quit();
+        }
+    });
+
+    // Create stream with capture properties
+    let props = pw::properties::properties! {
+        *pw::keys::MEDIA_TYPE => "Audio",
+        *pw::keys::MEDIA_CATEGORY => "Capture",
+        *pw::keys::MEDIA_ROLE => "Communication",
+    };
+
+    let stream = pw::stream::StreamBox::new(&core, "whisperme-capture", props)
+        .expect("failed to create PipeWire stream");
+
+    // Set up process callback - send individual samples
+    let _listener = stream
+        .add_local_listener_with_user_data(raw_tx)
+        .process(|stream, raw_tx| {
+            if let Some(mut buffer) = stream.dequeue_buffer() {
+                let data = buffer.datas_mut().first_mut().expect("no data plane");
+                let n_samples = data.chunk().size() / (mem::size_of::<f32>() as u32);
+                let bytes = data.data().expect("no buffer data");
+                (0..n_samples as usize).for_each(|n| {
+                    let start = n * mem::size_of::<f32>();
+                    let end = start + mem::size_of::<f32>();
+                    let sample = f32::from_le_bytes(bytes[start..end].try_into().unwrap());
+                    raw_tx.send(sample).expect("processor thread died");
+                });
+            }
+        })
+        .register()
+        .expect("failed to register stream listener");
+
+    // Build audio format parameters - request 48kHz mono f32
+    let mut audio_info = AudioInfoRaw::new();
+    audio_info.set_format(AudioFormat::F32LE);
+    audio_info.set_rate(CAPTURE_RATE);
+    audio_info.set_channels(1);
+
+    let obj = pw::spa::pod::Object {
+        type_: pw::spa::utils::SpaTypes::ObjectParamFormat.as_raw(),
+        id: pw::spa::param::ParamType::EnumFormat.as_raw(),
+        properties: audio_info.into(),
+    };
+    let values: Vec<u8> = pw::spa::pod::serialize::PodSerializer::serialize(
+        std::io::Cursor::new(Vec::new()),
+        &pw::spa::pod::Value::Object(obj),
+    )
+    .expect("failed to serialize audio format")
+    .0
+    .into_inner();
+
+    let mut params = [Pod::from_bytes(&values).expect("failed to create Pod")];
+
+    stream
+        .connect(
+            Direction::Input,
+            None,
+            StreamFlags::AUTOCONNECT | StreamFlags::MAP_BUFFERS | StreamFlags::RT_PROCESS,
+            &mut params,
+        )
+        .expect("failed to connect PipeWire stream");
+
+    mainloop.run();
+}
+
+/// Processor thread - blocks on raw_rx, accumulates 10ms of samples, applies noise cancellation and resampling
+fn run_processor(raw_rx: mpsc::Receiver<f32>, audio_tx: AudioSender) {
+    let mut processor = AudioProcessor::new();
+    let mut buffer = Vec::with_capacity(DenoiseState::FRAME_SIZE);
+
+    while let Ok(sample) = raw_rx.recv() {
+        buffer.push(sample);
+
+        // Process when we have 10ms of audio (480 samples at 48kHz)
+        if buffer.len() >= DenoiseState::FRAME_SIZE {
+            let processed = processor.process(&buffer);
+            buffer.clear();
+
+            for sample in processed {
+                audio_tx.send(sample).expect("transcription thread died");
+            }
+        }
     }
 }
 
@@ -130,7 +255,6 @@ impl AudioProcessor {
             let input_adapter = SequentialSliceOfVecs::new(&input_vecs, 1, DenoiseState::FRAME_SIZE).unwrap();
             match self.resampler.process(&input_adapter, 0, None) {
                 Ok(resampled) => {
-                    // InterleavedOwned for mono: take_data returns interleaved samples
                     output_16k.extend(resampled.take_data());
                 }
                 Err(e) => {
@@ -140,77 +264,6 @@ impl AudioProcessor {
         }
         output_16k
     }
-}
-
-fn run_capture(sample_tx: AudioSender, stop_flag: Arc<AtomicBool>) {
-    // Create a minimal tokio runtime for the async PulseAudio client
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap_or_exit("failed to create runtime for audio capture");
-
-    rt.block_on(async move {
-        let client_name = CString::new("whisperme").unwrap();
-        let client = Client::from_env(&client_name)
-            .unwrap_or_exit("failed to connect to PulseAudio - is it running?");
-
-        let sample_spec = SampleSpec {
-            format: SampleFormat::Float32Le,
-            sample_rate: CAPTURE_RATE, // 48kHz for RNNoise
-            channels: 1,
-        };
-
-        let channel_map = ChannelMap::new(vec![ChannelPosition::Mono]);
-
-        // Calculate fragment size in bytes for low latency
-        let samples_per_fragment = (CAPTURE_RATE * FRAGMENT_MS / 1000) as usize;
-        let fragment_size = (samples_per_fragment * std::mem::size_of::<f32>()) as u32;
-
-        let buffer_attr = BufferAttr {
-            fragment_size,
-            max_length: fragment_size * 4,
-            ..Default::default()
-        };
-
-        let params = RecordStreamParams {
-            sample_spec,
-            channel_map,
-            buffer_attr,
-            ..Default::default()
-        };
-
-        // Create audio processor for noise cancellation
-        let processor = std::sync::Mutex::new(AudioProcessor::new());
-
-        // Use closure as RecordSink - receives raw bytes
-        let sink = move |data: &[u8]| {
-            // Convert bytes to f32 samples (little-endian)
-            let samples: Vec<f32> = data.chunks_exact(4)
-                .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
-                .collect();
-
-            // Process through noise cancellation and resampling
-            let mut proc = processor.lock().unwrap();
-            let output = proc.process(&samples);
-
-            // Send processed samples
-            for sample in output {
-                if sample_tx.send(sample).is_err() {
-                    return; // Receiver dropped
-                }
-            }
-        };
-
-        let _stream = client
-            .create_record_stream(params, sink)
-            .await
-            .unwrap_or_exit("failed to create record stream");
-
-        // Poll stop flag - check every 100ms
-        while !stop_flag.load(Ordering::SeqCst) {
-            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-        }
-    });
 }
 
 #[cfg(test)]

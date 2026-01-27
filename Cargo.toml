@@ -17,8 +17,7 @@ path = "src/bin/whisperme-config.rs"
 
 [dependencies]
 rust-ini = "*"
-tokio = { version = "*", features = ["rt", "time"] }  # Minimal: only for pulseaudio crate
-pulseaudio = "*"
+pipewire = "*"
 nnnoiseless = "*"
 whisper-rs = { path = "vendor/whisper-rs", optional = true, features = ["vulkan"] }
 eframe = "*"
