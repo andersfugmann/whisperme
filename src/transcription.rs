@@ -80,6 +80,7 @@ fn load_model(config: &WhisperConfig) -> WhisperContext {
 
     ctx
 }
+// No need.
 
 fn run_transcription_thread(
     ctx: WhisperContext,
@@ -151,9 +152,14 @@ fn process_audio(
         let lang = language.as_ref().unwrap();
 
         // Text segments can be into the future!
-        let _test: isize = 4;
-        let grace_ms: usize = if recording { config.emit_grace_ms } else { 0 };
-        let emit_threshold_ms = current_audio_duration_ms - grace_ms;
+        let emit_threshold_ms : usize =
+            if current_audio_duration_ms < config.emit_grace_ms {
+                0
+            } else {
+                current_audio_duration_ms - config.emit_grace_ms
+            };
+
+
         eprintln!(
             "*** => Grace ms = {}. Total_time: {}",
             emit_threshold_ms,

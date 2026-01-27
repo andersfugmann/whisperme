@@ -126,7 +126,7 @@ fn run_pipewire_capture(
     // Build audio format parameters - request 48kHz mono f32
     let mut audio_info = AudioInfoRaw::new();
     audio_info.set_format(AudioFormat::F32LE);
-    audio_info.set_rate(CAPTURE_RATE);
+    audio_info.set_rate(CAPTURE_RATE as u32);
     audio_info.set_channels(1);
 
     let obj = pw::spa::pod::Object {

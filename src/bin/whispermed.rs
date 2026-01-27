@@ -3,9 +3,9 @@ use std::thread;
 use crossbeam_channel as channel;
 
 use whisperme::audio::{AudioCapture, TextSender};
-use whisperme::audio_processor::AudioProcessor;
 use whisperme::config::Config;
 use whisperme::fanout;
+use whisperme::audio_processor;
 use whisperme::injection;
 use whisperme::socket::{RecordingState, SocketEvent, SocketListener, SocketMessage};
 use whisperme::transcription::{TranscriptionRequest, TranscriptionThread};
@@ -89,15 +89,7 @@ fn start_recording(
     let (transc_tx, transc_rx) = channel::unbounded::<f32>();
     let (ui_tx_audio, ui_rx) = channel::unbounded::<f32>();
 
-    // Spawn processor thread: raw 48kHz → processed 16kHz
-    thread::spawn(move || {
-        let mut processor = AudioProcessor::new();
-        raw_rx.iter().for_each(|sample| {
-            processor.process(&[sample]).into_iter().for_each(|s| {
-                let _ = processed_tx.send(s);
-            });
-        });
-    });
+    audio_processor::spawn(raw_rx, processed_tx);
 
     // Spawn fanout thread: distribute processed audio to transcription and UI
     fanout::spawn(processed_rx, vec![transc_tx, ui_tx_audio]);

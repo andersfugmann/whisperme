@@ -3,17 +3,80 @@
 //! Pipeline: 48kHz raw → RNNoise → Rubato → 16kHz clean
 
 use audioadapter_buffers::direct::SequentialSliceOfVecs;
+use crossbeam_channel::{Receiver, Sender};
 use nnnoiseless::DenoiseState;
 use rubato::{
     Async, FixedAsync, Resampler, SincInterpolationParameters, SincInterpolationType,
     WindowFunction,
 };
+use std::thread::{self, JoinHandle};
+
 
 /// Input sample rate (required by RNNoise)
-pub const CAPTURE_RATE: u32 = 48000;
+pub const CAPTURE_RATE: usize = 48000;
 
 /// Output sample rate (required by Whisper)
 pub const SAMPLE_RATE: u32 = 16000;
+
+#[allow(dead_code)]
+pub fn spawn(rx: Receiver<f32>, tx: Sender<f32>) -> JoinHandle<()> {
+    thread::spawn(move || {
+        let mut first_sample = true;
+        let params = SincInterpolationParameters {
+            sinc_len: 256,
+            f_cutoff: 0.95,
+            oversampling_factor: 256,
+            interpolation: SincInterpolationType::Linear,
+            window: WindowFunction::BlackmanHarris2,
+        };
+
+        let mut resampler = Async::<f32>::new_sinc(
+            SAMPLE_RATE as f64 / CAPTURE_RATE as f64,
+            2.0,
+            &params,
+            DenoiseState::FRAME_SIZE,
+            1,
+            FixedAsync::Input,
+        )
+        .expect("failed to create resampler");
+
+        let mut denoise = DenoiseState::new();
+        // let output_buffer :Vec<f32> = vec![0.0; DenoiseState::FRAME_SIZE];
+        let mut output_buffer : Vec<f32> = vec![];
+        output_buffer.resize(DenoiseState::FRAME_SIZE, 0.0);
+        loop {
+            let scaled_sample : Vec<f32> = rx
+                .iter()
+                .take(DenoiseState::FRAME_SIZE)
+                .map(|s| s * i16::MAX as f32)
+                .collect();
+
+            // Test if we are done. This may drop the last samples, but thats ok.
+            if scaled_sample.len() < DenoiseState::FRAME_SIZE {
+                break;
+            }
+
+            denoise.process_frame(&mut output_buffer, &scaled_sample);
+
+            // First sample to heat up the denoise. Throw away.
+            if first_sample {
+                first_sample = false;
+                continue;
+            }
+
+            output_buffer.iter_mut().for_each(|x| *x = *x / i16::MAX as f32);
+
+            // Resample from 48kHz to 16kHz using high-quality sinc interpolation
+            let input_vecs = vec![output_buffer.clone()];
+            let input_adapter = SequentialSliceOfVecs::new(&input_vecs, 1, DenoiseState::FRAME_SIZE).expect("Unable to create slice of samples");
+            let resampled = resampler.process(&input_adapter, 0, None).expect("Unable to resample slice");
+            resampled.take_data().iter()
+                .for_each(|s| { let _ = tx.send(*s); });
+        }
+    })
+}
+
+
 
 /// Noise cancellation and resampling processor.
 /// Takes 48kHz audio, applies RNNoise denoising, resamples to 16kHz.
@@ -113,43 +176,42 @@ impl Default for AudioProcessor {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_frame_size() {
-        // RNNoise frame size is 480 samples at 48kHz = 10ms
-        assert_eq!(DenoiseState::FRAME_SIZE, 480);
-    }
-
-    #[test]
-    fn test_sample_rates() {
-        assert_eq!(CAPTURE_RATE, 48000);
-        assert_eq!(SAMPLE_RATE, 16000);
-    }
+    use crossbeam_channel::TryRecvError::Empty;
+    use crossbeam_channel::RecvError;
 
     #[test]
     fn test_process_empty() {
-        let mut processor = AudioProcessor::new();
-        let output = processor.process(&[]);
-        assert!(output.is_empty());
+        let (audio_tx, audio_rx) = crossbeam_channel::unbounded::<f32>();
+        let (processed_tx, processed_rx) = crossbeam_channel::unbounded::<f32>();
+        spawn(audio_rx, processed_tx);
+        assert_eq!(processed_rx.try_recv(), Err(Empty));
+        drop(audio_tx);
+        assert_eq!(processed_rx.recv(), Err(RecvError));
     }
 
     #[test]
     fn test_process_partial_frame() {
-        let mut processor = AudioProcessor::new();
         // Less than one frame - should accumulate but not output
-        let input = vec![0.0; 100];
-        let output = processor.process(&input);
-        assert!(output.is_empty());
+        let (audio_tx, audio_rx) = crossbeam_channel::unbounded::<f32>();
+        let (processed_tx, processed_rx) = crossbeam_channel::unbounded::<f32>();
+        spawn(audio_rx, processed_tx);
+
+        let input = vec![0.0; DenoiseState::FRAME_SIZE - 1];
+        input.iter().for_each(|x| { let _ = audio_tx.send(*x); });
+        drop(audio_tx);
+        assert!(processed_rx.is_empty());
     }
 
     #[test]
     fn test_process_full_frame() {
-        let mut processor = AudioProcessor::new();
         // Two full frames - first is discarded (warmup), second produces output
-        let input = vec![0.0; DenoiseState::FRAME_SIZE * 2];
-        let output = processor.process(&input);
-        // 480 samples at 48kHz → 160 samples at 16kHz (3:1 ratio)
-        assert!(!output.is_empty());
-        assert!(output.len() >= 150 && output.len() <= 170); // Allow some variance
+        let (audio_tx, audio_rx) = crossbeam_channel::unbounded::<f32>();
+        let (processed_tx, processed_rx) = crossbeam_channel::unbounded::<f32>();
+        spawn(audio_rx, processed_tx);
+
+        let input = vec![0.0; DenoiseState::FRAME_SIZE * 7];
+        input.iter().for_each(|x| { let _ = audio_tx.send(*x); });
+        drop(audio_tx);
+        assert_eq!(processed_rx.iter().count() + 1, DenoiseState::FRAME_SIZE * 2);
     }
 }

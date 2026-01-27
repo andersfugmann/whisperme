@@ -129,6 +129,13 @@ fn test_audio_to_text_pipeline() {
     use crossbeam_channel as channel;
     use whisperme::config::{TranscriptionConfig, WhisperConfig};
     use whisperme::transcription::{TranscriptionRequest, TranscriptionThread};
+    use whisperme::audio_processor;
+
+    let (audio_tx, audio_rx) = channel::unbounded::<f32>();
+    let (processed_tx, processed_rx) = channel::unbounded::<f32>();
+    let (text_tx, text_rx) = channel::unbounded::<String>();
+
+    audio_processor::spawn(audio_rx, processed_tx);
 
     // Load test audio
     let audio_path = Path::new("tests/fixtures/jfk_48k.wav");
@@ -138,22 +145,9 @@ fn test_audio_to_text_pipeline() {
         audio_path
     );
 
-    let audio_48k = load_wav(audio_path);
-    println!("Loaded {} samples from {:?}", audio_48k.len(), audio_path);
-
-    // Process through AudioProcessor (48kHz → 16kHz with noise cancellation)
-    let mut processor = AudioProcessor::new();
-    let audio_16k = processor.process(&audio_48k);
-    println!(
-        "Processed to {} samples at {}Hz",
-        audio_16k.len(),
-        SAMPLE_RATE
-    );
-
-    // Use tiny.en model for testing (downloaded by make test-slow)
     // Path starts with "./" so it's resolved relative to cwd
-    let model_path = Path::new("./models/ggml-medium.en.bin");
-
+    let model = "./models/ggml-medium.en.bin";
+    let model_path = Path::new(model);
     assert!(
         model_path.exists(),
         "Whisper model not found: {:?}. Run 'make download-model-tiny' first.",
@@ -161,12 +155,7 @@ fn test_audio_to_text_pipeline() {
     );
 
     let whisper_config = WhisperConfig {
-        model: model_path
-            .file_name()
-            .expect("")
-            .to_str()
-            .expect("")
-            .to_string(),
+        model: model.to_string(),
         model_path: model_path.to_path_buf(),
         language: "en".to_string(),
     };
@@ -174,18 +163,15 @@ fn test_audio_to_text_pipeline() {
     println!("Loading Whisper model: {:?}", whisper_config.model_path);
     let transcription = TranscriptionThread::new(&whisper_config, TranscriptionConfig::default());
 
-    // Create channels for audio and text
-    let (audio_tx, audio_rx) = channel::unbounded::<f32>();
-    let (text_tx, text_rx) = channel::unbounded::<String>();
 
-    // Send transcription request
-    transcription.send(TranscriptionRequest::ProcessAudio(audio_rx, text_tx));
-
-    // Send all audio samples
-    for sample in audio_16k {
+    for sample in load_wav(audio_path) {
         audio_tx.send(sample).expect("failed to send audio sample");
     }
-    drop(audio_tx); // Signal end of audio
+    drop(audio_tx);
+
+    // Send transcription request
+    // esentially no reason to send a message here. Just spawn
+    transcription.send(TranscriptionRequest::ProcessAudio(processed_rx, text_tx));
 
     // Collect transcribed text
     let mut transcribed_text = String::new();
