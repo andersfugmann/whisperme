@@ -1,8 +1,8 @@
 //! Text Injection Thread - types transcribed text into focused window using xdotool.
 
+use std::thread::{self, JoinHandle};
 use std::process::Command;
-
-use crate::audio::TextReceiver;
+use crossbeam_channel::Receiver;
 
 /// Verify xdotool is available, exit with error if missing.
 fn check_xdotool() {
@@ -47,13 +47,14 @@ fn type_text(text: &str) {
 /// Run the text injection thread.
 ///
 /// Types each text segment immediately as it arrives.
-pub fn run(text_rx: TextReceiver) {
+pub fn spawn(text_rx: Receiver<String>) -> JoinHandle<()> {
     check_xdotool();
-    while let Ok(text) = text_rx.recv() {
-        if !text.is_empty() {
-            type_text(&text);
-        }
-    }
+    thread::spawn(move || {
+        text_rx
+            .iter()
+            .filter(|text| !text.is_empty())
+            .for_each(|text| type_text(&text))
+    })
 }
 
 #[cfg(test)]

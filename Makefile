@@ -61,6 +61,12 @@ transcribe-start: build ## Start Transcription
 transcribe-stop: build ## Stop Transcription
 	cargo run --bin whisperme stop
 
+.PHONY: transcribe-10s
+transcribe-10s: build ## Transcribe for 10 seconds
+	$(MAKE) transcribe-start
+	sleep 10s
+	$(MAKE) transcribe-stop
+
 .PHONY: config
 config: build ## Open configuration dialog
 	cargo run --bin whisperme config

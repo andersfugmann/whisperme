@@ -2,7 +2,7 @@
 
 use std::thread::{self, JoinHandle};
 
-use crossbeam_channel as channel;
+use crossbeam_channel::{Receiver, Sender};
 use whisper_rs::{
     FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, WhisperSegment,
     WhisperState,
@@ -12,48 +12,38 @@ use crate::UnwrapOrExit;
 use crate::audio::{AudioReceiver, TextSender};
 use crate::audio_processor::SAMPLE_RATE;
 use crate::config::{TranscriptionConfig, WhisperConfig};
+use std::sync::Arc;
 
 /// Minimum audio samples required by Whisper (1.2 seconds at 16kHz).
 const MIN_AUDIO_SAMPLES: usize = (1.2 * SAMPLE_RATE as f32) as usize;
 
-/// Request sent to the transcription thread.
-pub enum TranscriptionRequest {
-    ProcessAudio(AudioReceiver, TextSender),
-}
-
 /// Transcription thread that loads the Whisper model and processes audio.
-pub struct TranscriptionThread {
-    request_tx: channel::Sender<TranscriptionRequest>,
-    handle: JoinHandle<()>,
+pub struct Transcription {
+    ctx : Arc<WhisperContext>,
+    language : String,
+    config: TranscriptionConfig,
 }
-
-impl TranscriptionThread {
+impl Transcription {
     /// Spawns a new transcription thread with the model loaded.
-    pub fn new(whisper_config: &WhisperConfig, transcription_config: TranscriptionConfig) -> Self {
+    pub fn new(whisper_config: &WhisperConfig, config: TranscriptionConfig) -> Self {
         let language = whisper_config.language.clone();
         // Load the Whisper model on the main thread
-        let ctx = load_model(whisper_config);
-
-        let (request_tx, request_rx) = channel::unbounded::<TranscriptionRequest>();
-
-        let handle = thread::spawn(move || {
-            run_transcription_thread(ctx, &language, transcription_config, request_rx);
-        });
-
-        Self { request_tx, handle }
+        let ctx = Arc::new(load_model(whisper_config));
+        Self { ctx, language, config }
     }
 
-    /// Sends a transcription request to the thread.
-    pub fn send(&self, request: TranscriptionRequest) {
-        if self.request_tx.send(request).is_err() {
-            eprintln!("error: transcription thread has exited unexpectedly");
-            std::process::exit(1);
-        }
-    }
-
-    /// Waits for the transcription thread to finish.
-    pub fn join(self) {
-        let _ = self.handle.join();
+    pub fn spawn(&self, audio_rx: Receiver<f32>, text_tx: Sender<String>) -> JoinHandle<()> {
+        let ctx = Arc::clone(&self.ctx);
+        let language = self.language.clone();
+        let config = self.config.clone();
+        thread::spawn(move || {
+            process_audio(
+                &ctx,
+                audio_rx,
+                text_tx,
+                &language,
+                &config);
+        })
     }
 }
 
@@ -79,19 +69,6 @@ fn load_model(config: &WhisperConfig) -> WhisperContext {
     println!("Whisper model loaded successfully");
 
     ctx
-}
-// No need.
-
-fn run_transcription_thread(
-    ctx: WhisperContext,
-    language: &str,
-    config: TranscriptionConfig,
-    request_rx: channel::Receiver<TranscriptionRequest>,
-) {
-    while let Ok(request) = request_rx.recv() {
-        let TranscriptionRequest::ProcessAudio(audio_rx, text_tx) = request;
-        process_audio(&ctx, audio_rx, text_tx, language, &config);
-    }
 }
 
 fn process_audio(
