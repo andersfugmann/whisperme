@@ -23,7 +23,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y xdotool libxdo-dev libasound2-dev libclang-dev libvulkan-dev glslc devscripts debhelper
+          sudo apt-get install -y xdotool libxdo-dev libasound2-dev libclang-dev libvulkan-dev glslc devscripts debhelper build-essential rustup libpulse-dev cmake
 
       - name: Setup Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -37,14 +37,14 @@ jobs:
         run: |
           # Get the previous tag
           PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-          
+
           # Generate changelog entries from commits since last tag
           if [ -n "$PREV_TAG" ]; then
             CHANGES=$(git log --pretty=format:"  * %s" "$PREV_TAG"..HEAD)
           else
             CHANGES=$(git log --pretty=format:"  * %s")
           fi
-          
+
           # Create new changelog entry
           cat > /tmp/changelog_entry << EOF
           whisperme (${{ inputs.version }}) unstable; urgency=medium
@@ -54,11 +54,11 @@ jobs:
            -- GitHub Actions <github-actions[bot]@users.noreply.github.com>  $(date -R)
 
           EOF
-          
+
           # Prepend to existing changelog
           cat /tmp/changelog_entry debian/changelog > /tmp/new_changelog
           mv /tmp/new_changelog debian/changelog
-          
+
           git add debian/changelog
           git commit -m "Release v${{ inputs.version }}"
 
