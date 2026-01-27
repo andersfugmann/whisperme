@@ -1,6 +1,6 @@
 //! UI module: recording indicator window with frequency visualization.
 
-use std::thread;
+use std::thread::{self, JoinHandle};
 use std::time::Instant;
 
 use circular_buffer::CircularBuffer;
@@ -75,21 +75,10 @@ const FREQ_BANDS: [(f32, f32); BAR_COUNT] = [
     (4000.0, 8000.0), // Air/brightness
 ];
 
-/// Spawn the UI thread that waits for Show requests.
-pub fn spawn(position: UiPosition) -> UiSender {
-    let (tx, rx) = channel::unbounded::<UiRequest>();
-
+pub fn show(audio_rx: AudioReceiver, position: UiPosition) -> JoinHandle<()> {
     thread::spawn(move || {
-        run_ui_thread(rx, position);
-    });
-
-    tx
-}
-
-fn run_ui_thread(rx: UiReceiver, position: UiPosition) {
-    while let Ok(UiRequest::Show(audio_rx)) = rx.recv() {
         run_ui_window(audio_rx, position);
-    }
+    })
 }
 
 fn run_ui_window(audio_rx: AudioReceiver, position: UiPosition) {

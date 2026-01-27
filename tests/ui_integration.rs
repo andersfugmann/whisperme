@@ -18,6 +18,7 @@ use crossbeam_channel as channel;
 use whisperme::audio::AudioCapture;
 use whisperme::audio_processor::{CAPTURE_RATE, SAMPLE_RATE};
 use whisperme::config::UiPosition;
+use whisperme::audio_processor;
 
 /// Test that audio capture works and produces samples.
 #[test]
@@ -138,24 +139,14 @@ fn test_ui_window_with_audio() {
     use whisperme::ui;
 
     // Spawn UI thread
-    let ui_tx = ui::spawn(UiPosition::BottomRight);
 
     // Create audio capture with fan-out
     let (capture_tx, capture_rx) = channel::unbounded();
     let (ui_audio_tx, ui_audio_rx) = channel::unbounded();
-
-    // Fan-out thread
-    thread::spawn(move || {
-        while let Ok(sample) = capture_rx.recv() {
-            let _ = ui_audio_tx.send(sample);
-        }
-    });
-
-    // Start capture
     let _capture = AudioCapture::new(capture_tx);
+    audio_processor::spawn(capture_rx, ui_audio_tx);
 
-    // Send Show request to UI
-    ui_tx.send(ui::UiRequest::Show(ui_audio_rx)).unwrap();
+    ui::show(ui_audio_rx, UiPosition::BottomRight);
 
     // Let it run for 5 seconds for visual inspection
     thread::sleep(Duration::from_secs(5));

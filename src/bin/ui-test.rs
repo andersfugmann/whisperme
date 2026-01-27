@@ -7,7 +7,7 @@ use std::time::Duration;
 use crossbeam_channel as channel;
 
 use whisperme::config::UiPosition;
-use whisperme::ui::{self, UiRequest};
+use whisperme::ui;
 
 fn main() {
     // Parse position from command line or default to BottomRight
@@ -63,14 +63,7 @@ fn main() {
         }
     });
 
-    // Spawn UI
-    let ui_tx = ui::spawn(position);
-
-    // Show the window
-    if ui_tx.send(UiRequest::Show(audio_rx)).is_err() {
-        eprintln!("Failed to send show request to UI");
-        return;
-    }
+    ui::show(audio_rx, position);
 
     // Wait 10 seconds then exit
     thread::sleep(Duration::from_secs(10));
