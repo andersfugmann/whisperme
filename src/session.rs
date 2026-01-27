@@ -53,7 +53,9 @@ mod tests {
     use crate::audio::SAMPLE_RATE;
     use std::time::{Duration, Instant};
 
+    /// Requires audio hardware - run with: cargo test -- --ignored
     #[test]
+    #[ignore]
     fn test_session_capture_3_seconds() {
         let (_session, transc_rx, ui_rx) = RecordingSession::start();
 

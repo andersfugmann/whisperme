@@ -15,7 +15,9 @@ use whisperme::audio::{AudioCapture, SAMPLE_RATE};
 use whisperme::config::UiPosition;
 
 /// Test that audio capture works and produces samples.
+/// Requires audio hardware - run with: cargo test -- --ignored
 #[test]
+#[ignore]
 fn test_audio_capture_produces_samples() {
     let (tx, rx) = mpsc::channel();
     let _capture = AudioCapture::new(tx);
@@ -42,11 +44,13 @@ fn test_audio_capture_produces_samples() {
 }
 
 /// Test that audio flows to multiple receivers via fan-out.
+/// Requires audio hardware - run with: cargo test -- --ignored
 #[test]
+#[ignore]
 fn test_audio_flows_to_multiple_receivers() {
     use whisperme::session::RecordingSession;
 
-    let (_session, transc_rx, ui_rx, _text_tx, _text_rx) = RecordingSession::start();
+    let (_session, transc_rx, ui_rx) = RecordingSession::start();
 
     // Allow capture to initialize
     thread::sleep(Duration::from_millis(500));

@@ -271,7 +271,9 @@ mod tests {
     use super::*;
     use std::time::{Duration, Instant};
 
+    /// Requires audio hardware - run with: cargo test -- --ignored
     #[test]
+    #[ignore]
     fn test_capture_3_seconds() {
         let (tx, rx) = mpsc::channel();
         let _capture = AudioCapture::new(tx);
