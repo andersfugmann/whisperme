@@ -29,10 +29,13 @@ winit = { version = "*", features = ["wayland", "x11"] }
 rubato = "*"
 audioadapter = "*"
 audioadapter-buffers = "*"
+crossbeam-channel = "*"
 
 [features]
 default = ["whisper"]
 whisper = ["dep:whisper-rs"]
+hardware = []    # Tests requiring audio hardware, display, or X11
+slow_tests = []  # Slow tests (e.g., full transcription pipeline)
 
 [dev-dependencies]
 hound = "*"

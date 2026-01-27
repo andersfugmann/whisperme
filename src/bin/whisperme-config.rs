@@ -129,7 +129,8 @@ impl App {
 
             let result = (|| -> Result<(), String> {
                 let resp = ureq::get(&url).call().map_err(|e| e.to_string())?;
-                let total: Option<u64> = resp.headers()
+                let total: Option<u64> = resp
+                    .headers()
                     .get("Content-Length")
                     .and_then(|v| v.to_str().ok())
                     .and_then(|s| s.parse().ok());
@@ -143,12 +144,18 @@ impl App {
 
                 loop {
                     let n = reader.read(&mut buf).map_err(|e| e.to_string())?;
-                    if n == 0 { break; }
+                    if n == 0 {
+                        break;
+                    }
                     file.write_all(&buf[..n]).map_err(|e| e.to_string())?;
                     downloaded += n as u64;
 
                     let text = match total {
-                        Some(t) => format!("Downloading... {}% of {} MB", downloaded * 100 / t, t / 1_000_000),
+                        Some(t) => format!(
+                            "Downloading... {}% of {} MB",
+                            downloaded * 100 / t,
+                            t / 1_000_000
+                        ),
                         None => format!("Downloading... {} MB", downloaded / 1_000_000),
                     };
                     *status.lock().unwrap() = Some(text);
@@ -166,7 +173,11 @@ impl App {
     }
 
     fn save_to_file(&self) {
-        let lang = if self.is_english_model() { "en" } else { &self.language };
+        let lang = if self.is_english_model() {
+            "en"
+        } else {
+            &self.language
+        };
         save_config(
             &self.model,
             lang,
@@ -367,14 +378,38 @@ fn load_config() -> LoadedConfig {
     let u = ini.section(Some("ui"));
     let t = ini.section(Some("transcription"));
     LoadedConfig {
-        model: w.and_then(|s| s.get("model")).unwrap_or("base.en").to_string(),
-        language: w.and_then(|s| s.get("language")).unwrap_or("auto").to_string(),
-        ui_enabled: u.and_then(|s| s.get("enabled")).map(|v| v == "true").unwrap_or(true),
-        position: u.and_then(|s| s.get("position")).unwrap_or("top-center").to_string(),
-        transcription_interval_ms: t.and_then(|s| s.get("transcription_interval_ms")).and_then(|v| v.parse().ok()).unwrap_or(DEFAULT_CHUNK_INTERVAL_MS),
-        emit_grace_ms: t.and_then(|s| s.get("emit_grace_ms")).and_then(|v| v.parse().ok()).unwrap_or(DEFAULT_EMIT_GRACE_MS),
-        language_confidence: t.and_then(|s| s.get("language_confidence")).and_then(|v| v.parse().ok()).unwrap_or(DEFAULT_LANGUAGE_CONFIDENCE),
-        silence_rms_threshold: t.and_then(|s| s.get("silence_rms_threshold")).and_then(|v| v.parse().ok()).unwrap_or(DEFAULT_SILENCE_RMS_THRESHOLD),
+        model: w
+            .and_then(|s| s.get("model"))
+            .unwrap_or("base.en")
+            .to_string(),
+        language: w
+            .and_then(|s| s.get("language"))
+            .unwrap_or("auto")
+            .to_string(),
+        ui_enabled: u
+            .and_then(|s| s.get("enabled"))
+            .map(|v| v == "true")
+            .unwrap_or(true),
+        position: u
+            .and_then(|s| s.get("position"))
+            .unwrap_or("top-center")
+            .to_string(),
+        transcription_interval_ms: t
+            .and_then(|s| s.get("transcription_interval_ms"))
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(DEFAULT_CHUNK_INTERVAL_MS),
+        emit_grace_ms: t
+            .and_then(|s| s.get("emit_grace_ms"))
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(DEFAULT_EMIT_GRACE_MS),
+        language_confidence: t
+            .and_then(|s| s.get("language_confidence"))
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(DEFAULT_LANGUAGE_CONFIDENCE),
+        silence_rms_threshold: t
+            .and_then(|s| s.get("silence_rms_threshold"))
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(DEFAULT_SILENCE_RMS_THRESHOLD),
     }
 }
 
@@ -398,7 +433,10 @@ fn save_config(
         .set("enabled", if ui_enabled { "true" } else { "false" })
         .set("position", position);
     ini.with_section(Some("transcription"))
-        .set("transcription_interval_ms", transcription_interval_ms.to_string())
+        .set(
+            "transcription_interval_ms",
+            transcription_interval_ms.to_string(),
+        )
         .set("emit_grace_ms", emit_grace_ms.to_string())
         .set("language_confidence", language_confidence.to_string())
         .set("silence_rms_threshold", silence_rms_threshold.to_string());

@@ -27,14 +27,14 @@ fn main() {
                 .as_ref()
                 .and_then(|p| p.parent())
                 .map(|dir| dir.join("whisperme-config"));
-            
+
             let result = if let Some(path) = config_exe.filter(|p| p.exists()) {
                 Command::new(path).spawn()
             } else {
                 // Try finding in PATH
                 Command::new("whisperme-config").spawn()
             };
-            
+
             match result {
                 Ok(_) => {}
                 Err(e) => {

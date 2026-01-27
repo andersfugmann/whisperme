@@ -2,7 +2,7 @@
 
 use std::process::Command;
 
-use crate::session::TextReceiver;
+use crate::audio::TextReceiver;
 
 /// Verify xdotool is available, exit with error if missing.
 fn check_xdotool() {
@@ -32,7 +32,9 @@ fn type_text(text: &str) {
         Ok(s) if s.success() => {}
         Ok(s) => {
             eprintln!("error: xdotool type failed with exit code {:?}", s.code());
-            eprintln!("hint: ensure a text input is focused and the application accepts synthetic input");
+            eprintln!(
+                "hint: ensure a text input is focused and the application accepts synthetic input"
+            );
             std::process::exit(1);
         }
         Err(e) => {
@@ -56,11 +58,11 @@ pub fn run(text_rx: TextReceiver) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
+    /// Requires X11 and xdotool - run with: make test-hardware
     #[test]
-    #[ignore] // Actually types text via xdotool - run manually
+    #[cfg(feature = "hardware")]
     fn test_xdotool_available() {
+        use super::*;
         check_xdotool();
     }
 }

@@ -4,9 +4,9 @@
 //! Processing (noise cancellation, resampling) is handled separately by AudioProcessor.
 
 use std::mem;
-use std::sync::mpsc;
 use std::thread::{self, JoinHandle};
 
+use crossbeam_channel as channel;
 use pipewire as pw;
 use pw::spa::param::audio::{AudioFormat, AudioInfoRaw};
 use pw::spa::pod::Pod;
@@ -16,8 +16,11 @@ use pw::stream::StreamFlags;
 use crate::audio_processor::CAPTURE_RATE;
 
 pub type AudioSample = f32;
-pub type AudioSender = mpsc::Sender<AudioSample>;
-pub type AudioReceiver = mpsc::Receiver<AudioSample>;
+pub type AudioSender = channel::Sender<AudioSample>;
+pub type AudioReceiver = channel::Receiver<AudioSample>;
+
+pub type TextSender = channel::Sender<String>;
+pub type TextReceiver = channel::Receiver<String>;
 
 /// Control message for PipeWire thread
 #[derive(Debug)]
@@ -53,7 +56,9 @@ impl AudioCapture {
     /// Idempotent - safe to call multiple times.
     pub fn stop(&mut self) {
         if self.pipewire_handle.is_some() {
-            self.stop_sender.send(ControlMessage::Stop).expect("pipewire thread died");
+            self.stop_sender
+                .send(ControlMessage::Stop)
+                .expect("pipewire thread died");
         }
 
         if let Some(handle) = self.pipewire_handle.take() {
@@ -69,10 +74,17 @@ impl Drop for AudioCapture {
 }
 
 /// PipeWire capture thread - runs MainLoop, sends individual samples to raw_tx
-fn run_pipewire_capture(stop_receiver: pw::channel::Receiver<ControlMessage>, raw_tx: mpsc::Sender<f32>) {
-    let mainloop = pw::main_loop::MainLoopRc::new(None).expect("failed to create PipeWire MainLoop");
-    let context = pw::context::ContextRc::new(&mainloop, None).expect("failed to create PipeWire context");
-    let core = context.connect_rc(None).expect("failed to connect to PipeWire");
+fn run_pipewire_capture(
+    stop_receiver: pw::channel::Receiver<ControlMessage>,
+    raw_tx: channel::Sender<f32>,
+) {
+    let mainloop =
+        pw::main_loop::MainLoopRc::new(None).expect("failed to create PipeWire MainLoop");
+    let context =
+        pw::context::ContextRc::new(&mainloop, None).expect("failed to create PipeWire context");
+    let core = context
+        .connect_rc(None)
+        .expect("failed to connect to PipeWire");
 
     // Attach stop receiver to mainloop
     let _stop_listener = stop_receiver.attach(mainloop.loop_(), {
@@ -146,15 +158,15 @@ fn run_pipewire_capture(stop_receiver: pw::channel::Receiver<ControlMessage>, ra
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::audio_processor::CAPTURE_RATE;
-    use std::time::{Duration, Instant};
-
-    /// Requires audio hardware - run with: cargo test -- --ignored
+    /// Requires audio hardware - run with: make test-hardware
     #[test]
-    #[ignore]
+    #[cfg(feature = "hardware")]
     fn test_capture_3_seconds() {
-        let (tx, rx) = mpsc::channel();
+        use super::*;
+        use crate::audio_processor::CAPTURE_RATE;
+        use std::time::{Duration, Instant};
+
+        let (tx, rx) = channel::unbounded();
         let _capture = AudioCapture::new(tx);
 
         // Allow startup time
@@ -168,8 +180,8 @@ mod tests {
         while sample_count < expected_samples && start.elapsed() < timeout {
             match rx.recv_timeout(Duration::from_millis(10)) {
                 Ok(_) => sample_count += 1,
-                Err(mpsc::RecvTimeoutError::Timeout) => continue,
-                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                Err(channel::RecvTimeoutError::Timeout) => continue,
+                Err(channel::RecvTimeoutError::Disconnected) => break,
             }
         }
 

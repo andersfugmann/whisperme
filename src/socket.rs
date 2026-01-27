@@ -3,8 +3,9 @@
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
-use std::sync::mpsc;
 use std::thread;
+
+use crossbeam_channel as channel;
 
 use crate::UnwrapOrExit;
 
@@ -18,7 +19,7 @@ pub enum SocketMessage {
 
 impl std::str::FromStr for SocketMessage {
     type Err = ();
-    
+
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.trim() {
             "start" => Ok(Self::Start),
@@ -46,7 +47,7 @@ impl RecordingState {
 }
 
 pub struct StatusRequest {
-    pub response_tx: mpsc::Sender<RecordingState>,
+    pub response_tx: channel::Sender<RecordingState>,
 }
 
 pub enum SocketEvent {
@@ -54,8 +55,8 @@ pub enum SocketEvent {
     StatusRequest(StatusRequest),
 }
 
-pub type EventSender = mpsc::Sender<SocketEvent>;
-pub type EventReceiver = mpsc::Receiver<SocketEvent>;
+pub type EventSender = channel::Sender<SocketEvent>;
+pub type EventReceiver = channel::Receiver<SocketEvent>;
 
 fn socket_path() -> PathBuf {
     let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
@@ -121,7 +122,7 @@ impl SocketListener {
         };
 
         if msg == SocketMessage::Status {
-            let (response_tx, response_rx) = mpsc::channel();
+            let (response_tx, response_rx) = channel::unbounded();
             let _ = tx.send(SocketEvent::StatusRequest(StatusRequest { response_tx }));
             if let Ok(state) = response_rx.recv() {
                 let _ = writeln!(stream, "{}", state.as_str());

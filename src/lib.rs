@@ -1,14 +1,14 @@
 pub mod audio;
 pub mod audio_processor;
 pub mod config;
+pub mod fanout;
 pub mod injection;
-pub mod session;
 pub mod socket;
 pub mod transcription;
 pub mod ui;
 
 /// Extension trait for fail-fast error handling.
-/// 
+///
 /// All operations use `.unwrap_or_exit()` which:
 /// - Prints error message to stderr
 /// - Calls `exit(1)`

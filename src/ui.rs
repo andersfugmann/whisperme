@@ -1,14 +1,14 @@
 //! UI module: recording indicator window with frequency visualization.
 
-use std::sync::mpsc;
 use std::thread;
 use std::time::Instant;
 
 use circular_buffer::CircularBuffer;
+use crossbeam_channel as channel;
 use eframe::egui;
-use spectrum_analyzer::{samples_fft_to_spectrum, FrequencyLimit};
-use spectrum_analyzer::windows::hann_window;
 use spectrum_analyzer::scaling::divide_by_N_sqrt;
+use spectrum_analyzer::windows::hann_window;
+use spectrum_analyzer::{FrequencyLimit, samples_fft_to_spectrum};
 
 use crate::audio::AudioReceiver;
 use crate::audio_processor::SAMPLE_RATE;
@@ -19,8 +19,8 @@ pub enum UiRequest {
     Show(AudioReceiver),
 }
 
-pub type UiSender = mpsc::Sender<UiRequest>;
-pub type UiReceiver = mpsc::Receiver<UiRequest>;
+pub type UiSender = channel::Sender<UiRequest>;
+pub type UiReceiver = channel::Receiver<UiRequest>;
 
 /// FFT size for frequency analysis (must be power of 2)
 const FFT_SIZE: usize = 256;
@@ -77,7 +77,7 @@ const FREQ_BANDS: [(f32, f32); BAR_COUNT] = [
 
 /// Spawn the UI thread that waits for Show requests.
 pub fn spawn(position: UiPosition) -> UiSender {
-    let (tx, rx) = mpsc::channel::<UiRequest>();
+    let (tx, rx) = channel::unbounded::<UiRequest>();
 
     thread::spawn(move || {
         run_ui_thread(rx, position);
@@ -112,8 +112,7 @@ fn run_ui_window(audio_rx: AudioReceiver, position: UiPosition) {
             .with_transparent(true)
             .with_always_on_top()
             .with_mouse_passthrough(true)
-            .with_close_button(false)
-            ,
+            .with_close_button(false),
         event_loop_builder: Some(event_loop_builder),
         ..Default::default()
     };
@@ -123,9 +122,7 @@ fn run_ui_window(audio_rx: AudioReceiver, position: UiPosition) {
     if let Err(e) = eframe::run_native(
         "WhisperMe",
         native_options,
-        Box::new(move |_cc| {
-            Ok(Box::new(app))
-        }),
+        Box::new(move |_cc| Ok(Box::new(app))),
     ) {
         eprintln!("UI window error: {e}");
     }
@@ -161,8 +158,8 @@ impl RecordingIndicator {
                 Ok(sample) => {
                     self.sample_buffer.push_back(sample);
                 }
-                Err(mpsc::TryRecvError::Empty) => break,
-                Err(mpsc::TryRecvError::Disconnected) => {
+                Err(channel::TryRecvError::Empty) => break,
+                Err(channel::TryRecvError::Disconnected) => {
                     self.channel_closed = true;
                     break;
                 }
@@ -194,39 +191,48 @@ impl RecordingIndicator {
         };
 
         // Calculate magnitude for each frequency band
-        let new_heights: Vec<f32> = FREQ_BANDS.iter().enumerate().map(|(bar_idx, &(low_hz, high_hz))| {
-            // Sum magnitudes in frequency range
-            let (magnitude_sum, count) = spectrum.data().iter().fold((0.0f32, 0u32), |(sum, cnt), (freq, val)| {
-                let freq_hz = freq.val();
-                if freq_hz >= low_hz && freq_hz < high_hz {
-                    (sum + val.val(), cnt + 1)
+        let new_heights: Vec<f32> = FREQ_BANDS
+            .iter()
+            .enumerate()
+            .map(|(bar_idx, &(low_hz, high_hz))| {
+                // Sum magnitudes in frequency range
+                let (magnitude_sum, count) =
+                    spectrum
+                        .data()
+                        .iter()
+                        .fold((0.0f32, 0u32), |(sum, cnt), (freq, val)| {
+                            let freq_hz = freq.val();
+                            if freq_hz >= low_hz && freq_hz < high_hz {
+                                (sum + val.val(), cnt + 1)
+                            } else {
+                                (sum, cnt)
+                            }
+                        });
+
+                let avg_magnitude = if count > 0 {
+                    magnitude_sum / count as f32
                 } else {
-                    (sum, cnt)
-                }
-            });
+                    0.0
+                };
 
-            let avg_magnitude = if count > 0 {
-                magnitude_sum / count as f32
-            } else {
-                0.0
-            };
+                // Convert to dB scale
+                let db = if avg_magnitude > 0.0 {
+                    20.0 * avg_magnitude.log10()
+                } else {
+                    -60.0
+                };
 
-            // Convert to dB scale
-            let db = if avg_magnitude > 0.0 {
-                20.0 * avg_magnitude.log10()
-            } else {
-                -60.0
-            };
+                // Normalize to 0-1 range (assuming -60dB to 0dB range)
+                let normalized = ((db + 60.0) / 60.0).clamp(0.0, 1.0);
 
-            // Normalize to 0-1 range (assuming -60dB to 0dB range)
-            let normalized = ((db + 60.0) / 60.0).clamp(0.0, 1.0);
+                // Map to pixel height
+                let target_height = BAR_MIN_HEIGHT + normalized * (BAR_MAX_HEIGHT - BAR_MIN_HEIGHT);
 
-            // Map to pixel height
-            let target_height = BAR_MIN_HEIGHT + normalized * (BAR_MAX_HEIGHT - BAR_MIN_HEIGHT);
-
-            // Apply exponential smoothing
-            self.bar_heights[bar_idx] * (1.0 - SMOOTHING_ALPHA) + target_height * SMOOTHING_ALPHA
-        }).collect();
+                // Apply exponential smoothing
+                self.bar_heights[bar_idx] * (1.0 - SMOOTHING_ALPHA)
+                    + target_height * SMOOTHING_ALPHA
+            })
+            .collect();
 
         // Update bar heights
         self.bar_heights.copy_from_slice(&new_heights);
@@ -238,18 +244,13 @@ impl RecordingIndicator {
 
         match self.position {
             UiPosition::TopLeft => egui::pos2(SCREEN_MARGIN, SCREEN_MARGIN),
-            UiPosition::TopCenter => egui::pos2(
-                (screen_w - WINDOW_WIDTH) / 2.0,
-                SCREEN_MARGIN,
-            ),
-            UiPosition::TopRight => egui::pos2(
-                screen_w - WINDOW_WIDTH - SCREEN_MARGIN,
-                SCREEN_MARGIN,
-            ),
-            UiPosition::BottomLeft => egui::pos2(
-                SCREEN_MARGIN,
-                screen_h - WINDOW_HEIGHT - SCREEN_MARGIN,
-            ),
+            UiPosition::TopCenter => egui::pos2((screen_w - WINDOW_WIDTH) / 2.0, SCREEN_MARGIN),
+            UiPosition::TopRight => {
+                egui::pos2(screen_w - WINDOW_WIDTH - SCREEN_MARGIN, SCREEN_MARGIN)
+            }
+            UiPosition::BottomLeft => {
+                egui::pos2(SCREEN_MARGIN, screen_h - WINDOW_HEIGHT - SCREEN_MARGIN)
+            }
             UiPosition::BottomCenter => egui::pos2(
                 (screen_w - WINDOW_WIDTH) / 2.0,
                 screen_h - WINDOW_HEIGHT - SCREEN_MARGIN,
@@ -301,17 +302,10 @@ impl eframe::App for RecordingIndicator {
                 let rect = ui.available_rect_before_wrap();
 
                 // Draw rounded background
-                painter.rect_filled(
-                    rect,
-                    CORNER_RADIUS,
-                    bg_color(),
-                );
+                painter.rect_filled(rect, CORNER_RADIUS, bg_color());
 
                 // Draw recording dot (pulsing)
-                let dot_center = egui::pos2(
-                    rect.left() + PADDING + DOT_RADIUS,
-                    rect.center().y,
-                );
+                let dot_center = egui::pos2(rect.left() + PADDING + DOT_RADIUS, rect.center().y);
                 let base_dot = dot_color();
                 let pulsing_dot = egui::Color32::from_rgba_unmultiplied(
                     base_dot.r(),
@@ -325,14 +319,17 @@ impl eframe::App for RecordingIndicator {
                 let bars_start_x = dot_center.x + DOT_RADIUS + PADDING;
                 let bars_center_y = rect.center().y;
 
-                self.bar_heights.iter().enumerate().for_each(|(i, &height)| {
-                    let bar_x = bars_start_x + i as f32 * (BAR_WIDTH + BAR_GAP);
-                    let bar_rect = egui::Rect::from_center_size(
-                        egui::pos2(bar_x + BAR_WIDTH / 2.0, bars_center_y),
-                        egui::vec2(BAR_WIDTH, height),
-                    );
-                    painter.rect_filled(bar_rect, BAR_CORNER_RADIUS, bar_color());
-                });
+                self.bar_heights
+                    .iter()
+                    .enumerate()
+                    .for_each(|(i, &height)| {
+                        let bar_x = bars_start_x + i as f32 * (BAR_WIDTH + BAR_GAP);
+                        let bar_rect = egui::Rect::from_center_size(
+                            egui::pos2(bar_x + BAR_WIDTH / 2.0, bars_center_y),
+                            egui::vec2(BAR_WIDTH, height),
+                        );
+                        painter.rect_filled(bar_rect, BAR_CORNER_RADIUS, bar_color());
+                    });
             });
     }
 }
@@ -345,14 +342,19 @@ mod tests {
     fn test_freq_bands_coverage() {
         // Verify frequency bands don't overlap and are in order
         for window in FREQ_BANDS.windows(2) {
-            assert!(window[0].1 <= window[1].0,
+            assert!(
+                window[0].1 <= window[1].0,
                 "Bands should not overlap: {:?} and {:?}",
-                window[0], window[1]);
+                window[0],
+                window[1]
+            );
         }
 
         // Verify last band doesn't exceed Nyquist (SAMPLE_RATE / 2)
-        assert!(FREQ_BANDS[BAR_COUNT - 1].1 <= (SAMPLE_RATE / 2) as f32,
-            "Last band should not exceed Nyquist frequency");
+        assert!(
+            FREQ_BANDS[BAR_COUNT - 1].1 <= (SAMPLE_RATE / 2) as f32,
+            "Last band should not exceed Nyquist frequency"
+        );
     }
 
     #[test]

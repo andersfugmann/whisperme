@@ -4,7 +4,10 @@
 
 use audioadapter_buffers::direct::SequentialSliceOfVecs;
 use nnnoiseless::DenoiseState;
-use rubato::{Async, FixedAsync, Resampler, SincInterpolationParameters, SincInterpolationType, WindowFunction};
+use rubato::{
+    Async, FixedAsync, Resampler, SincInterpolationParameters, SincInterpolationType,
+    WindowFunction,
+};
 
 /// Input sample rate (required by RNNoise)
 pub const CAPTURE_RATE: u32 = 48000;
@@ -40,7 +43,8 @@ impl AudioProcessor {
             DenoiseState::FRAME_SIZE,
             1,
             FixedAsync::Input,
-        ).expect("failed to create resampler");
+        )
+        .expect("failed to create resampler");
 
         Self {
             denoise: DenoiseState::new(),
@@ -59,16 +63,16 @@ impl AudioProcessor {
         let mut output_16k = Vec::new();
 
         while self.input_buffer.len() >= DenoiseState::FRAME_SIZE {
-            let frame: Vec<f32> = self.input_buffer
+            let frame: Vec<f32> = self
+                .input_buffer
                 .drain(..DenoiseState::FRAME_SIZE)
                 .collect();
 
             // Convert from [-1, 1] to i16 range for RNNoise
-            let scaled_input: Vec<f32> = frame.iter()
-                .map(|&s| s * i16::MAX as f32)
-                .collect();
+            let scaled_input: Vec<f32> = frame.iter().map(|&s| s * i16::MAX as f32).collect();
 
-            self.denoise.process_frame(&mut self.output_buffer, &scaled_input);
+            self.denoise
+                .process_frame(&mut self.output_buffer, &scaled_input);
 
             // Skip first frame (contains artifacts from uninitialized state)
             if self.first_frame {
@@ -77,13 +81,16 @@ impl AudioProcessor {
             }
 
             // Convert back to [-1, 1] range
-            let denoised: Vec<f32> = self.output_buffer.iter()
+            let denoised: Vec<f32> = self
+                .output_buffer
+                .iter()
                 .map(|&s| s / i16::MAX as f32)
                 .collect();
 
             // Resample from 48kHz to 16kHz using high-quality sinc interpolation
             let input_vecs = vec![denoised];
-            let input_adapter = SequentialSliceOfVecs::new(&input_vecs, 1, DenoiseState::FRAME_SIZE).unwrap();
+            let input_adapter =
+                SequentialSliceOfVecs::new(&input_vecs, 1, DenoiseState::FRAME_SIZE).unwrap();
             match self.resampler.process(&input_adapter, 0, None) {
                 Ok(resampled) => {
                     output_16k.extend(resampled.take_data());

@@ -92,8 +92,8 @@ impl Config {
         let config_dir = std::env::var("XDG_CONFIG_HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|_| {
-                let home = std::env::var("HOME")
-                    .unwrap_or_exit("HOME environment variable not set");
+                let home =
+                    std::env::var("HOME").unwrap_or_exit("HOME environment variable not set");
                 PathBuf::from(home).join(".config")
             });
         config_dir.join("whisperme").join("config.ini")
@@ -103,11 +103,23 @@ impl Config {
         let data_dir = std::env::var("XDG_DATA_HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|_| {
-                let home = std::env::var("HOME")
-                    .unwrap_or_exit("HOME environment variable not set");
+                let home =
+                    std::env::var("HOME").unwrap_or_exit("HOME environment variable not set");
                 PathBuf::from(home).join(".local/share")
             });
         data_dir.join("whisperme").join("models")
+    }
+
+    /// Resolve model path:
+    /// - Absolute path (starts with `/`): use as-is
+    /// - Relative to cwd (starts with `./`): use as-is
+    /// - Otherwise: treat as model name, look in ~/.local/share/whisperme/models/ggml-{name}.bin
+    fn resolve_model_path(model: &str) -> PathBuf {
+        match model {
+            s if s.starts_with('/') => PathBuf::from(s),
+            s if s.starts_with("./") => PathBuf::from(s),
+            name => Self::models_dir().join(format!("ggml-{name}.bin")),
+        }
     }
 
     fn from_ini(ini: &Ini) -> Self {
@@ -126,7 +138,7 @@ impl Config {
             .unwrap_or("auto")
             .to_string();
 
-        let model_path = Self::models_dir().join(format!("ggml-{model}.bin"));
+        let model_path = Self::resolve_model_path(&model);
 
         let ui_enabled = ui_section
             .and_then(|s| s.get("enabled"))

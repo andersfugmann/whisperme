@@ -5,22 +5,24 @@
 //! 2. Audio samples flow through channels
 //! 3. The UI window can receive and process audio
 //!
-//! Run with: cargo test --test ui_integration -- --ignored
-//! (ignored by default as it requires audio hardware and display)
+//! Run with: make test-hardware
+//! (requires audio hardware and display)
 
-use std::sync::mpsc;
+#![cfg(feature = "hardware")]
+
 use std::thread;
 use std::time::{Duration, Instant};
+
+use crossbeam_channel as channel;
+
 use whisperme::audio::AudioCapture;
 use whisperme::audio_processor::{CAPTURE_RATE, SAMPLE_RATE};
 use whisperme::config::UiPosition;
 
 /// Test that audio capture works and produces samples.
-/// Requires audio hardware - run with: cargo test -- --ignored
 #[test]
-#[ignore]
 fn test_audio_capture_produces_samples() {
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = channel::unbounded();
     let _capture = AudioCapture::new(tx);
 
     // Allow capture thread to initialize
@@ -34,24 +36,48 @@ fn test_audio_capture_produces_samples() {
     while sample_count < expected && start.elapsed() < timeout {
         match rx.recv_timeout(Duration::from_millis(10)) {
             Ok(_) => sample_count += 1,
-            Err(mpsc::RecvTimeoutError::Timeout) => continue,
-            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            Err(channel::RecvTimeoutError::Timeout) => continue,
+            Err(channel::RecvTimeoutError::Disconnected) => break,
         }
     }
 
     println!("Captured {} samples in {:?}", sample_count, start.elapsed());
     // Allow 20% margin for timing
-    assert!(sample_count >= expected * 80 / 100, "Expected at least {} samples, got {}", expected * 80 / 100, sample_count);
+    assert!(
+        sample_count >= expected * 80 / 100,
+        "Expected at least {} samples, got {}",
+        expected * 80 / 100,
+        sample_count
+    );
 }
 
 /// Test that audio flows to multiple receivers via fan-out.
-/// Requires audio hardware - run with: cargo test -- --ignored
 #[test]
-#[ignore]
 fn test_audio_flows_to_multiple_receivers() {
-    use whisperme::session::RecordingSession;
+    use whisperme::audio_processor::AudioProcessor;
+    use whisperme::fanout;
 
-    let (_session, transc_rx, ui_rx) = RecordingSession::start();
+    // Create pipeline: capture → processor → fanout → receivers
+    let (raw_tx, raw_rx) = channel::unbounded::<f32>();
+    let (processed_tx, processed_rx) = channel::unbounded::<f32>();
+    let (transc_tx, transc_rx) = channel::unbounded::<f32>();
+    let (ui_tx, ui_rx) = channel::unbounded::<f32>();
+
+    // Spawn processor thread
+    thread::spawn(move || {
+        let mut processor = AudioProcessor::new();
+        raw_rx.iter().for_each(|sample| {
+            processor.process(&[sample]).into_iter().for_each(|s| {
+                let _ = processed_tx.send(s);
+            });
+        });
+    });
+
+    // Spawn fanout
+    fanout::spawn(processed_rx, vec![transc_tx, ui_tx]);
+
+    // Start capture
+    let _capture = AudioCapture::new(raw_tx);
 
     // Allow capture to initialize
     thread::sleep(Duration::from_millis(500));
@@ -87,16 +113,27 @@ fn test_audio_flows_to_multiple_receivers() {
     let ui_count = ui_handle.join().unwrap();
     let transc_count = transc_handle.join().unwrap();
 
-    println!("UI receiver got {} samples, Transcription got {}", ui_count, transc_count);
+    println!(
+        "UI receiver got {} samples, Transcription got {}",
+        ui_count, transc_count
+    );
     // Allow 20% margin
-    assert!(ui_count >= expected * 80 / 100, "Expected at least {} UI samples, got {}", expected * 80 / 100, ui_count);
-    assert!(transc_count >= expected * 80 / 100, "Expected at least {} transc samples, got {}", expected * 80 / 100, transc_count);
+    assert!(
+        ui_count >= expected * 80 / 100,
+        "Expected at least {} UI samples, got {}",
+        expected * 80 / 100,
+        ui_count
+    );
+    assert!(
+        transc_count >= expected * 80 / 100,
+        "Expected at least {} transc samples, got {}",
+        expected * 80 / 100,
+        transc_count
+    );
 }
 
 /// Integration test: spawn UI with real audio for visual inspection.
-/// This test is ignored by default as it opens a window.
 #[test]
-#[ignore]
 fn test_ui_window_with_audio() {
     use whisperme::ui;
 
@@ -104,8 +141,8 @@ fn test_ui_window_with_audio() {
     let ui_tx = ui::spawn(UiPosition::BottomRight);
 
     // Create audio capture with fan-out
-    let (capture_tx, capture_rx) = mpsc::channel();
-    let (ui_audio_tx, ui_audio_rx) = mpsc::channel();
+    let (capture_tx, capture_rx) = channel::unbounded();
+    let (ui_audio_tx, ui_audio_rx) = channel::unbounded();
 
     // Fan-out thread
     thread::spawn(move || {
@@ -122,6 +159,6 @@ fn test_ui_window_with_audio() {
 
     // Let it run for 5 seconds for visual inspection
     thread::sleep(Duration::from_secs(5));
-    
+
     println!("UI test complete - window should have appeared and closed");
 }

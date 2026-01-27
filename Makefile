@@ -8,6 +8,11 @@ all: build
 # Directories
 PREFIX ?= $(HOME)/.local
 BINDIR := $(PREFIX)/bin
+MODELS_DIR := models
+
+# Model URLs (Hugging Face)
+MODEL_URL_BASE := https://huggingface.co/ggerganov/whisper.cpp/resolve/main
+MODEL_TINY := ggml-medium.en.bin
 
 .PHONY: build
 build: submodules ## Build the project (debug)
@@ -20,12 +25,29 @@ release: submodules ## Build the project (release)
 .PHONY: build-release
 build-release: build release ## Build both debug and release
 
-.PHONY: test
-test: ## Run all tests
+.PHONY: testmodel
+test: ## Run all tests (excluding hardware and slow tests)
 	cargo test
-	@echo ""
-	@echo "To run visual UI test (opens a window):"
-	@echo "  cargo test --test ui_integration test_ui_window_with_audio -- --ignored"
+
+.PHONY: test-hardware
+test-hardware: ## Run hardware tests (requires audio, display, X11)
+	cargo test --features hardware
+
+.PHONY: test-slow
+test-slow: download-model-tiny ## Run slow tests (e.g., full transcription pipeline)
+	cargo test --features slow_tests -- --nocapture
+
+.PHONY: test-all
+test-all: ## Run all tests including hardware and slow
+	cargo test --features "hardware slow_tests"
+
+.PHONY: download-model-tiny
+download-model-tiny: $(MODELS_DIR)/$(MODEL_TINY) ## Download tiny.en model for testing (~75MB)
+
+.DELETE_ON_ERROR: $(MODELS_DIR)/$(MODEL_TINY)
+$(MODELS_DIR)/$(MODEL_TINY):
+	@mkdir -p $(dir $@)
+	@curl -L -o $@ "$(MODEL_URL_BASE)/$(MODEL_TINY)"
 
 .PHONY: run
 run: build ## Run the daemon
