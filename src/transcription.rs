@@ -4,7 +4,6 @@ use std::sync::mpsc as std_mpsc;
 use std::thread::{self, JoinHandle};
 
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, WhisperSegment, WhisperState};
-use winit::event_loop::EventLoopClosed;
 
 use crate::audio::{AudioReceiver, SAMPLE_RATE};
 use crate::config::{TranscriptionConfig, WhisperConfig};
@@ -228,7 +227,7 @@ fn detect_language(ctx: &WhisperContext, audio: &[f32]) -> (String, f32) {
     let lang_str = whisper_rs::get_lang_str(lang_id).expect("Unknown language");
 
     let confidence = probs.get(lang_id as usize).copied().unwrap_or(0.0);
-    (confidence, lang_str.to_string());
+    (lang_str.to_string(), confidence)
 
 }
 

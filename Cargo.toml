@@ -19,13 +19,16 @@ path = "src/bin/whisperme-config.rs"
 rust-ini = "*"
 tokio = { version = "*", features = ["rt", "time"] }  # Minimal: only for pulseaudio crate
 pulseaudio = "*"
-nnnoiseless = "0.5"
+nnnoiseless = "*"
 whisper-rs = { path = "vendor/whisper-rs", optional = true, features = ["vulkan"] }
 eframe = "*"
 spectrum-analyzer = "*"
 circular-buffer = "*"
 ureq = "*"
-winit = { version = "0.30.12", features = ["wayland", "x11"] }
+winit = { version = "*", features = ["wayland", "x11"] }
+rubato = "*"
+audioadapter = "*"
+audioadapter-buffers = "*"
 
 [features]
 default = ["whisper"]

@@ -1,5 +1,5 @@
 //! Audio capture using PulseAudio with noise cancellation.
-//! 
+//!
 //! Pipeline: PulseAudio (48kHz) → RNNoise → Resample (16kHz) → Output
 
 use pulseaudio::protocol::{ChannelMap, ChannelPosition, RecordStreamParams, SampleFormat, SampleSpec};
@@ -11,6 +11,8 @@ use std::sync::{mpsc, Arc};
 use std::thread;
 
 use nnnoiseless::DenoiseState;
+use rubato::{Async, FixedAsync, SincInterpolationType, SincInterpolationParameters, WindowFunction, Resampler};
+use audioadapter_buffers::direct::SequentialSliceOfVecs;
 
 use crate::UnwrapOrExit;
 
@@ -60,67 +62,82 @@ impl Drop for AudioCapture {
 /// Noise cancellation and resampling processor
 struct AudioProcessor {
     denoise: Box<DenoiseState<'static>>,
+    resampler: Async<f32>,
     input_buffer: Vec<f32>,
     output_buffer: Vec<f32>,
-    resample_buffer: Vec<f32>,
     first_frame: bool,
 }
 
 impl AudioProcessor {
     fn new() -> Self {
+        let params = SincInterpolationParameters {
+            sinc_len: 256,
+            f_cutoff: 0.95,
+            oversampling_factor: 256,
+            interpolation: SincInterpolationType::Linear,
+            window: WindowFunction::BlackmanHarris2,
+        };
+
+        let resampler = Async::<f32>::new_sinc(
+            SAMPLE_RATE as f64 / CAPTURE_RATE as f64,
+            2.0,
+            &params,
+            DenoiseState::FRAME_SIZE,
+            1,
+            FixedAsync::Input,
+        ).expect("failed to create resampler");
+
         Self {
             denoise: DenoiseState::new(),
+            resampler,
             input_buffer: Vec::with_capacity(DenoiseState::FRAME_SIZE * 2),
             output_buffer: vec![0.0; DenoiseState::FRAME_SIZE],
-            resample_buffer: Vec::new(),
             first_frame: true,
         }
     }
 
     /// Process incoming audio samples (48kHz) and return denoised 16kHz samples
     fn process(&mut self, samples: &[f32]) -> Vec<f32> {
-        // Add samples to input buffer
         self.input_buffer.extend_from_slice(samples);
-        
+
         let mut output_16k = Vec::new();
-        
-        // Process complete frames
+
         while self.input_buffer.len() >= DenoiseState::FRAME_SIZE {
-            // Extract frame
             let frame: Vec<f32> = self.input_buffer
                 .drain(..DenoiseState::FRAME_SIZE)
                 .collect();
-            
+
             // Convert from [-1, 1] to i16 range for RNNoise
             let scaled_input: Vec<f32> = frame.iter()
                 .map(|&s| s * i16::MAX as f32)
                 .collect();
-            
-            // Apply noise cancellation
+
             self.denoise.process_frame(&mut self.output_buffer, &scaled_input);
-            
-            // Skip first frame (contains artifacts)
+
+            // Skip first frame (contains artifacts from uninitialized state)
             if self.first_frame {
                 self.first_frame = false;
                 continue;
             }
-            
+
             // Convert back to [-1, 1] range
             let denoised: Vec<f32> = self.output_buffer.iter()
                 .map(|&s| s / i16::MAX as f32)
                 .collect();
-            
-            // Add to resample buffer
-            self.resample_buffer.extend_from_slice(&denoised);
+
+            // Resample from 48kHz to 16kHz using high-quality sinc interpolation
+            let input_vecs = vec![denoised];
+            let input_adapter = SequentialSliceOfVecs::new(&input_vecs, 1, DenoiseState::FRAME_SIZE).unwrap();
+            match self.resampler.process(&input_adapter, 0, None) {
+                Ok(resampled) => {
+                    // InterleavedOwned for mono: take_data returns interleaved samples
+                    output_16k.extend(resampled.take_data());
+                }
+                Err(e) => {
+                    eprintln!("Resampling error: {}", e);
+                }
+            }
         }
-        
-        // Simple 3:1 downsampling from 48kHz to 16kHz
-        // (A proper resampler would be better, but this works for speech)
-        while self.resample_buffer.len() >= 3 {
-            let sum: f32 = self.resample_buffer.drain(..3).sum();
-            output_16k.push(sum / 3.0);
-        }
-        
         output_16k
     }
 }
@@ -171,11 +188,11 @@ fn run_capture(sample_tx: AudioSender, stop_flag: Arc<AtomicBool>) {
             let samples: Vec<f32> = data.chunks_exact(4)
                 .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
                 .collect();
-            
+
             // Process through noise cancellation and resampling
             let mut proc = processor.lock().unwrap();
             let output = proc.process(&samples);
-            
+
             // Send processed samples
             for sample in output {
                 if sample_tx.send(sample).is_err() {
@@ -235,7 +252,7 @@ mod tests {
             sample_count
         );
     }
-    
+
     #[test]
     fn test_denoise_frame_size() {
         // RNNoise frame size is 480 samples at 48kHz = 10ms
