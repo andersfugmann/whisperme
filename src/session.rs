@@ -4,6 +4,7 @@ use std::thread;
 use std::sync::mpsc;
 
 use crate::audio::{AudioCapture, AudioReceiver};
+use crate::audio_processor::AudioProcessor;
 
 pub type TextSender = mpsc::Sender<String>;
 pub type TextReceiver = mpsc::Receiver<String>;
@@ -20,24 +21,35 @@ impl RecordingSession {
     ///
     /// Returns:
     /// - The session itself (owns resources)
-    /// - AudioReceiver for transcription
-    /// - AudioReceiver for UI visualization
+    /// - AudioReceiver for transcription (16kHz processed)
+    /// - AudioReceiver for UI visualization (16kHz processed)
     pub fn start() -> (Self, AudioReceiver, AudioReceiver) {
-        // Create fan-out: one sender from capture, two receivers via distributor
-        let (capture_tx, capture_rx) = mpsc::channel::<f32>();
+        // Create channels
+        let (raw_tx, raw_rx) = mpsc::channel::<f32>();           // 48kHz raw
+        let (processed_tx, processed_rx) = mpsc::channel::<f32>(); // 16kHz processed
         let (transc_tx, transc_rx) = mpsc::channel::<f32>();
         let (ui_tx, ui_rx) = mpsc::channel::<f32>();
 
-        // Spawn distributor thread to fan out audio to both receivers
+        // Spawn processor thread: raw 48kHz → processed 16kHz
         thread::spawn(move || {
-            while let Ok(sample) = capture_rx.recv() {
-                // Send to both; ignore errors if receiver dropped
+            let mut processor = AudioProcessor::new();
+            while let Ok(sample) = raw_rx.recv() {
+                let processed = processor.process(&[sample]);
+                for s in processed {
+                    let _ = processed_tx.send(s);
+                }
+            }
+        });
+
+        // Spawn distributor thread: fan out processed audio to both receivers
+        thread::spawn(move || {
+            while let Ok(sample) = processed_rx.recv() {
                 let _ = transc_tx.send(sample);
                 let _ = ui_tx.send(sample);
             }
         });
 
-        let capture = AudioCapture::new(capture_tx);
+        let capture = AudioCapture::new(raw_tx);
 
         (
             Self { capture },
@@ -50,7 +62,7 @@ impl RecordingSession {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::audio::SAMPLE_RATE;
+    use crate::audio_processor::SAMPLE_RATE;
     use std::time::{Duration, Instant};
 
     /// Requires audio hardware - run with: cargo test -- --ignored
@@ -62,7 +74,7 @@ mod tests {
         // Allow startup time
         thread::sleep(Duration::from_millis(100));
 
-        let expected_samples = SAMPLE_RATE as u64 * 2; // 2 seconds worth
+        let expected_samples = SAMPLE_RATE as u64 * 2; // 2 seconds worth at 16kHz
         let timeout = Duration::from_secs(4);
         let start = Instant::now();
 

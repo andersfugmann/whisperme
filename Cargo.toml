@@ -33,3 +33,6 @@ audioadapter-buffers = "*"
 [features]
 default = ["whisper"]
 whisper = ["dep:whisper-rs"]
+
+[dev-dependencies]
+hound = "*"

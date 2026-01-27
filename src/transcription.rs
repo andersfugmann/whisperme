@@ -5,7 +5,8 @@ use std::thread::{self, JoinHandle};
 
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, WhisperSegment, WhisperState};
 
-use crate::audio::{AudioReceiver, SAMPLE_RATE};
+use crate::audio::AudioReceiver;
+use crate::audio_processor::SAMPLE_RATE;
 use crate::config::{TranscriptionConfig, WhisperConfig};
 use crate::session::TextSender;
 use crate::UnwrapOrExit;

@@ -11,7 +11,8 @@
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
-use whisperme::audio::{AudioCapture, SAMPLE_RATE};
+use whisperme::audio::AudioCapture;
+use whisperme::audio_processor::{CAPTURE_RATE, SAMPLE_RATE};
 use whisperme::config::UiPosition;
 
 /// Test that audio capture works and produces samples.
@@ -28,7 +29,7 @@ fn test_audio_capture_produces_samples() {
     let mut sample_count = 0u64;
     let start = Instant::now();
     let timeout = Duration::from_secs(3);
-    let expected = SAMPLE_RATE as u64 * 2; // 2 seconds worth
+    let expected = CAPTURE_RATE as u64 * 2; // 2 seconds worth at 48kHz
 
     while sample_count < expected && start.elapsed() < timeout {
         match rx.recv_timeout(Duration::from_millis(10)) {
@@ -55,7 +56,7 @@ fn test_audio_flows_to_multiple_receivers() {
     // Allow capture to initialize
     thread::sleep(Duration::from_millis(500));
 
-    let expected = SAMPLE_RATE as u64; // 1 second worth
+    let expected = SAMPLE_RATE as u64; // 1 second worth at 16kHz (processed)
     let timeout = Duration::from_secs(3);
     let start = Instant::now();
 

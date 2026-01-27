@@ -4315,6 +4315,7 @@ dependencies = [
  "audioadapter-buffers",
  "circular-buffer",
  "eframe",
+ "hound",
  "nnnoiseless",
  "pipewire",
  "rubato",
