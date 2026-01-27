@@ -1,3 +1,25 @@
+whisperme (0.0.1) unstable; urgency=medium
+
+  * Simplify #3
+  * Simplify #2
+  * Simplify #1
+  * Larger refactoring
+  * Implement pipe test for audio transcription
+  * Fix tests
+  * Update LICENSE
+  * Add missing debian dependency for pipewire
+  * Update audio to use pipwire and simpler design
+  * Improve downsampling
+  * Fix workflow
+  * Update copilot instructions
+  * Create workflows
+  * Update makefile
+  * Updates#
+  * Initial release
+  * Add architecture design documentation v2.0
+
+ -- GitHub Actions <github-actions[bot]@users.noreply.github.com>  Tue, 27 Jan 2026 22:10:08 +0000
+
 whisperme (0.1.0-1) unstable; urgency=medium
 
   * Initial release.
