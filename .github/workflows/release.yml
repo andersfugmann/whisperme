@@ -23,15 +23,10 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y xdotool libxdo-dev libclang-dev libvulkan-dev glslc devscripts debhelper build-essential rustup cmake libpipewire-0.3-dev
+          make deps
 
       - name: Setup Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
-
-      - name: Configure git
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Update debian changelog
         run: |
@@ -59,17 +54,26 @@ jobs:
           cat /tmp/changelog_entry debian/changelog > /tmp/new_changelog
           mv /tmp/new_changelog debian/changelog
 
+      - name: Build debian package
+        run: make deb
+
+      - name: Test install debian package
+        run: |
+          sudo apt-get install -y ../whisperme_${{ inputs.version }}_*.deb
+          whisperme --help || true
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Commit changelog and create tag
+        run: |
           git add debian/changelog
           git commit -m "Release v${{ inputs.version }}"
-
-      - name: Create and push tag
-        run: |
           git tag -a "v${{ inputs.version }}" -m "Release v${{ inputs.version }}"
           git push origin HEAD:main
           git push origin "v${{ inputs.version }}"
-
-      - name: Build debian package
-        run: make deb
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2

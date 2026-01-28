@@ -14,6 +14,11 @@ MODELS_DIR := models
 MODEL_URL_BASE := https://huggingface.co/ggerganov/whisper.cpp/resolve/main
 MODEL_TINY := ggml-medium.en.bin
 
+.PHONY: deps
+deps: ## Install build dependencies
+	sudo apt-get install --no-install-recommends -y devscripts equivs build-essential fakeroot
+	sudo mk-build-deps -i -r --tool 'apt-get -o Debug::pkgProblemResolver=yes --no-install-recommends -y' debian/control
+
 .PHONY: build
 build: submodules ## Build the project (debug)
 	cargo build
