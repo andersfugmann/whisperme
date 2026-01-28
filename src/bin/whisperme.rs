@@ -45,7 +45,7 @@ const POSITIONS: &[(&str, &str)] = &[
 const DEFAULT_CHUNK_INTERVAL_MS: usize = 1000;
 const DEFAULT_EMIT_GRACE_MS: usize = 1200;
 const DEFAULT_LANGUAGE_CONFIDENCE: f32 = 0.7;
-const DEFAULT_SILENCE_RMS_THRESHOLD: f32 = 0.01;
+const DEFAULT_SILENCE_THRESHOLD_DBFS: f32 = -80.0;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -97,7 +97,7 @@ struct ConfigApp {
     transcription_interval_ms: usize,
     emit_grace_ms: usize,
     language_confidence: f32,
-    silence_rms_threshold: f32,
+    silence_threshold_dbfs: f32,
     models_dir: PathBuf,
     download_status: Arc<Mutex<Option<String>>>,
 }
@@ -113,7 +113,7 @@ impl ConfigApp {
             transcription_interval_ms: cfg.transcription_interval_ms,
             emit_grace_ms: cfg.emit_grace_ms,
             language_confidence: cfg.language_confidence,
-            silence_rms_threshold: cfg.silence_rms_threshold,
+            silence_threshold_dbfs: cfg.silence_threshold_dbfs,
             models_dir: models_dir(),
             download_status: Arc::new(Mutex::new(None)),
         }
@@ -210,7 +210,7 @@ impl ConfigApp {
             self.transcription_interval_ms,
             self.emit_grace_ms,
             self.language_confidence,
-            self.silence_rms_threshold,
+            self.silence_threshold_dbfs,
         );
     }
 }
@@ -373,14 +373,14 @@ impl eframe::App for ConfigApp {
                     );
                     ui.end_row();
 
-                    ui.label("Silence RMS threshold:").on_hover_text(
-                        "Audio energy threshold below which segments are discarded.",
+                    ui.label("Silence threshold (dBFS):").on_hover_text(
+                        "RMS threshold in dBFS. Segments below this level are discarded.",
                     );
                     ui.add(
-                        egui::DragValue::new(&mut self.silence_rms_threshold)
-                            .range(0.0..=0.1)
-                            .speed(0.001)
-                            .fixed_decimals(4),
+                        egui::DragValue::new(&mut self.silence_threshold_dbfs)
+                            .range(-120.0..=0.0)
+                            .speed(1.0)
+                            .fixed_decimals(0),
                     );
                     ui.end_row();
                 });
@@ -427,7 +427,7 @@ struct LoadedConfig {
     transcription_interval_ms: usize,
     emit_grace_ms: usize,
     language_confidence: f32,
-    silence_rms_threshold: f32,
+    silence_threshold_dbfs: f32,
 }
 
 fn load_config() -> LoadedConfig {
@@ -465,10 +465,10 @@ fn load_config() -> LoadedConfig {
             .and_then(|s| s.get("language_confidence"))
             .and_then(|v| v.parse().ok())
             .unwrap_or(DEFAULT_LANGUAGE_CONFIDENCE),
-        silence_rms_threshold: t
-            .and_then(|s| s.get("silence_rms_threshold"))
+        silence_threshold_dbfs: t
+            .and_then(|s| s.get("silence_threshold_dbfs"))
             .and_then(|v| v.parse().ok())
-            .unwrap_or(DEFAULT_SILENCE_RMS_THRESHOLD),
+            .unwrap_or(DEFAULT_SILENCE_THRESHOLD_DBFS),
     }
 }
 
@@ -480,7 +480,7 @@ fn save_config(
     transcription_interval_ms: usize,
     emit_grace_ms: usize,
     language_confidence: f32,
-    silence_rms_threshold: f32,
+    silence_threshold_dbfs: f32,
 ) {
     let path = config_path();
     let _ = std::fs::create_dir_all(path.parent().unwrap());
@@ -498,6 +498,6 @@ fn save_config(
         )
         .set("emit_grace_ms", emit_grace_ms.to_string())
         .set("language_confidence", language_confidence.to_string())
-        .set("silence_rms_threshold", silence_rms_threshold.to_string());
+        .set("silence_threshold_dbfs", silence_threshold_dbfs.to_string());
     let _ = ini.write_to_file(&path);
 }

@@ -12,6 +12,10 @@ path = "src/bin/whispermed.rs"
 name = "whisperme"
 path = "src/bin/whisperme.rs"
 
+[[bin]]
+name = "audio-level"
+path = "src/bin/audio-level.rs"
+
 [dependencies]
 rust-ini = "*"
 pipewire = "*"

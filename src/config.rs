@@ -90,17 +90,21 @@ pub struct TranscriptionConfig {
     pub emit_grace_ms: usize,
     /// Language detection confidence threshold (0.0 - 1.0).
     pub language_confidence: f32,
-    /// RMS threshold below which segments are considered silence.
+    /// RMS threshold in dBFS. Segments with RMS below this level are discarded.
+    pub silence_threshold_dbfs: f32,
+    /// Precomputed linear RMS threshold (10^(dbfs/20))
     pub silence_rms_threshold: f32,
 }
 
 impl Default for TranscriptionConfig {
     fn default() -> Self {
+        let silence_threshold_dbfs = -80.0;
         Self {
             transcription_interval_ms: 1000,
             emit_grace_ms: 1200,
             language_confidence: 0.7,
-            silence_rms_threshold: 0.00001,
+            silence_threshold_dbfs,
+            silence_rms_threshold: 10.0_f32.powf(silence_threshold_dbfs / 20.0),
         }
     }
 }
@@ -207,10 +211,10 @@ impl Config {
             .and_then(|s| s.parse().ok())
             .unwrap_or(defaults.language_confidence);
 
-        let silence_rms_threshold = transcription_section
-            .and_then(|s| s.get("silence_rms_threshold"))
+        let silence_threshold_dbfs = transcription_section
+            .and_then(|s| s.get("silence_threshold_dbfs"))
             .and_then(|s| s.parse().ok())
-            .unwrap_or(defaults.silence_rms_threshold);
+            .unwrap_or(defaults.silence_threshold_dbfs);
 
         let output_method = output_section
             .and_then(|s| s.get("method"))
@@ -231,7 +235,8 @@ impl Config {
                 transcription_interval_ms,
                 emit_grace_ms,
                 language_confidence,
-                silence_rms_threshold,
+                silence_threshold_dbfs,
+                silence_rms_threshold: 10.0_f32.powf(silence_threshold_dbfs / 20.0),
             },
             output: OutputConfig {
                 method: output_method,

@@ -41,6 +41,10 @@ test-slow: download-model-tiny ## Run slow tests (e.g., full transcription pipel
 test-all: ## Run all tests including system and slow
 	cargo test --features "system slow_tests"
 
+.PHONY: audio-level
+audio-level: ## Run audio level meter (shows dBFS)
+	cargo run --bin audio-level
+
 .PHONY: download-model-tiny
 download-model-tiny: $(MODELS_DIR)/$(MODEL_TINY) ## Download tiny.en model for testing (~75MB)
 

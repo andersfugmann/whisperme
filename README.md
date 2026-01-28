@@ -50,7 +50,11 @@ make test-slow     # Transcription tests (downloads model)
 
 ## Configuration
 
-Configuration file: `$XDG_CONFIG_HOME/whisperme/config.ini` (default: `~/.config/whisperme/config.ini`)
+Configuration file: `$XDG_CONFIG_HOME/whisperme/config.ini`
+
+Default paths (when XDG variables are unset):
+- Config: `~/.config/whisperme/config.ini`
+- Models: `~/.local/share/whisperme/models/`
 
 ### [whisper]
 
@@ -80,7 +84,7 @@ Available models: tiny, tiny.en, base, base.en, small, small.en, medium, medium.
 | `transcription_interval_ms` | `1000` | How often to run transcription on buffered audio (ms) |
 | `emit_grace_ms` | `1200` | Delay before emitting text to avoid incomplete words (ms) |
 | `language_confidence` | `0.7` | Minimum confidence for language detection (0.0-1.0) |
-| `silence_rms_threshold` | `0.00001` | Audio energy below which segments are discarded |
+| `silence_threshold_dbfs` | `-80` | RMS threshold in dBFS per transcribed segment. Segments below this are discarded |
 
 ### [output]
 
@@ -103,7 +107,7 @@ position = top-center
 transcription_interval_ms = 1000
 emit_grace_ms = 1200
 language_confidence = 0.7
-silence_rms_threshold = 0.00001
+silence_threshold_dbfs = -80
 
 [output]
 method = xdo
