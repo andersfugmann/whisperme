@@ -1,3 +1,10 @@
+whisperme (0.0.3) unstable; urgency=medium
+
+  * Convert to dBMS
+  * Use libxdo tool and add tests and update documentation
+
+ -- GitHub Actions <github-actions[bot]@users.noreply.github.com>  Wed, 28 Jan 2026 22:33:21 +0000
+
 whisperme (0.0.2) unstable; urgency=medium
 
   * Update release workflow
