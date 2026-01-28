@@ -1,34 +1,33 @@
 # WhisperMe
 
-A Linux speech-to-text input system powered by OpenAI's Whisper. Press a hotkey, speak, and your words are typed into any application.
+Linux speech-to-text using OpenAI Whisper. Press a hotkey, speak, release to transcribe into any application.
 
 ## Features
 
-- **Hotkey-triggered** – Press `Super+Shift+Space` to record, release to transcribe
-- **Local AI** – Runs Whisper models locally (tiny to large-v3), no cloud required
-- **Noise cancellation** – RNNoise removes background noise for cleaner transcription
-- **Multi-language** – Auto-detects language or select from 11+ supported languages
-- **Works everywhere** – Injects text into any focused application via xdotool
+- Local Whisper inference (tiny to large-v3 models)
+- RNNoise background noise removal
+- Auto language detection or manual selection
+- Text injection via libxdo (X11)
+- Allow Hotkey-triggered transciption (Handled by the system)
 
 ## Components
 
 | Binary | Description |
 |--------|-------------|
-| `whispermed` | Background daemon that handles recording and transcription |
-| `whisperme` | CLI client to control the daemon (start/stop/toggle) |
-| `whisperme-config` | GUI for model selection, language settings, and configuration |
+| `whispermed` | Daemon for recording and transcription |
+| `whisperme` | CLI to control the daemon (start/stop/toggle/status/config) |
 
-## How It Works
+## Pipeline
 
 ```
-Hotkey → PipeWire capture → RNNoise → Whisper → xdotool → Text appears
+Hotkey -> PipeWire -> RNNoise -> Whisper -> libxdo -> Text
 ```
 
-## Requirements
+## Build Dependencies
 
-- Linux with PipeWire
-- X11 with xdotool (for text injection)
-- Wayland support in progress (using ydotool)
+```bash
+sudo apt install libpipewire-0.3-dev libclang-dev libvulkan-dev glslc libxdo-dev
+```
 
 ## Building
 
@@ -36,6 +35,80 @@ Hotkey → PipeWire capture → RNNoise → Whisper → xdotool → Text appears
 make build
 ```
 
+To build without xdo (prints to stdout instead):
+```bash
+cargo build --no-default-features
+```
+
+## Testing
+
+```bash
+make test          # Unit tests
+make test-system   # Tests requiring X11/display
+make test-slow     # Transcription tests (downloads model)
+```
+
+## Configuration
+
+Configuration file: `$XDG_CONFIG_HOME/whisperme/config.ini` (default: `~/.config/whisperme/config.ini`)
+
+### [whisper]
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `model` | `base.en` | Model name, relative path (`./`), or absolute path |
+| `language` | `auto` | Language code (auto, en, es, fr, de, zh, ja, ko, pt, ru, it) |
+
+Model path resolution:
+- Absolute path (`/path/to/model.bin`): used as-is
+- Relative path (`./models/model.bin`): relative to current directory
+- Model name (`base.en`): resolves to `$XDG_DATA_HOME/whisperme/models/ggml-{name}.bin`
+
+Available models: tiny, tiny.en, base, base.en, small, small.en, medium, medium.en, large-v3, large-v3-turbo
+
+### [ui]
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `enabled` | `true` | Show recording indicator window |
+| `position` | `top-center` | Window position (top-left, top-center, top-right, bottom-left, bottom-center, bottom-right) |
+
+### [transcription]
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `transcription_interval_ms` | `1000` | How often to run transcription on buffered audio (ms) |
+| `emit_grace_ms` | `1200` | Delay before emitting text to avoid incomplete words (ms) |
+| `language_confidence` | `0.7` | Minimum confidence for language detection (0.0-1.0) |
+| `silence_rms_threshold` | `0.00001` | Audio energy below which segments are discarded |
+
+### [output]
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `method` | `xdo` | Output method: `xdo` (type into focused window) or `print` (stdout) |
+
+### Example
+
+```ini
+[whisper]
+model = base.en
+language = auto
+
+[ui]
+enabled = true
+position = top-center
+
+[transcription]
+transcription_interval_ms = 1000
+emit_grace_ms = 1200
+language_confidence = 0.7
+silence_rms_threshold = 0.00001
+
+[output]
+method = xdo
+```
+
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
+MIT

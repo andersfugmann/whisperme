@@ -23,7 +23,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y xdotool libxdo-dev libasound2-dev libclang-dev libvulkan-dev glslc devscripts debhelper build-essential rustup libpulse-dev cmake
+          sudo apt-get install -y xdotool libxdo-dev libclang-dev libvulkan-dev glslc devscripts debhelper build-essential rustup cmake libpipewire-0.3-dev
 
       - name: Setup Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1

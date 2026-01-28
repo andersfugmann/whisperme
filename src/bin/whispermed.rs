@@ -3,9 +3,9 @@ use std::thread;
 use crossbeam_channel as channel;
 
 use whisperme::audio::AudioCapture;
-use whisperme::config::{Config, UiPosition};
-use whisperme::fanout;
 use whisperme::audio_processor;
+use whisperme::config::{Config, OutputConfig, UiPosition};
+use whisperme::fanout;
 use whisperme::injection;
 use whisperme::socket::{RecordingState, SocketEvent, SocketListener, SocketMessage};
 use whisperme::transcription::Transcription;
@@ -31,12 +31,18 @@ fn main() {
     println!("Listening for commands...");
 
     // Event loop with immutable state transitions
+    let ui_position = config.ui.position;
+    let output_config = config.output.clone();
     socket_rx
         .iter()
         .fold(None::<AudioCapture>, |capture, event| match event {
-            SocketEvent::Command(SocketMessage::Start) => {
-                capture.or_else(|| Some(start_recording(&transcription, Some(config.ui.position))))
-            }
+            SocketEvent::Command(SocketMessage::Start) => capture.or_else(|| {
+                Some(start_recording(
+                    &transcription,
+                    Some(ui_position),
+                    &output_config,
+                ))
+            }),
             SocketEvent::Command(SocketMessage::Stop) => {
                 capture.map(|c| {
                     drop(c);
@@ -50,7 +56,11 @@ fn main() {
                     println!("Recording stopped, transcribing...");
                     None
                 }
-                None => Some(start_recording(&transcription, Some(config.ui.position))),
+                None => Some(start_recording(
+                    &transcription,
+                    Some(ui_position),
+                    &output_config,
+                )),
             },
             SocketEvent::Command(SocketMessage::Status) => capture,
             SocketEvent::StatusRequest(req) => {
@@ -67,29 +77,33 @@ fn main() {
 
 /// Start audio capture pipeline and wire up all threads.
 /// Returns AudioCapture handle - dropping it stops recording.
-fn start_recording(transcription: &Transcription, ui_position: Option<UiPosition>) -> AudioCapture {
+fn start_recording(
+    transcription: &Transcription,
+    ui_position: Option<UiPosition>,
+    output_config: &OutputConfig,
+) -> AudioCapture {
     // Create channels
     let (audio_tx, audio_rx) = channel::unbounded::<f32>(); // 48kHz raw
     let (processed_tx, processed_rx) = channel::unbounded::<f32>(); // 16kHz processed
     let (text_tx, text_rx) = channel::unbounded::<String>();
     audio_processor::spawn(audio_rx, processed_tx);
-    // Create global text channel for injection
-    injection::spawn(text_rx);
+
+    // Spawn text output thread
+    injection::spawn(text_rx, output_config);
 
     // Spawn fanout thread: distribute processed audio to transcription and UI
-    let transcription_rx =
-        match ui_position {
-            Some(ui_position) => {
-                // Send audio receiver to UI thread (If there is to be a UI)
-                // Should just show the UI - and not clone.
-                let (transcription_tx, transcription_rx) = channel::unbounded::<f32>();
-                let (ui_tx, ui_rx) = channel::unbounded::<f32>();
-                fanout::spawn(processed_rx, vec![transcription_tx, ui_tx]);
-                ui::show(ui_rx, ui_position);
-                transcription_rx
-            }
-            None => processed_rx
-        };
+    let transcription_rx = match ui_position {
+        Some(ui_position) => {
+            // Send audio receiver to UI thread (If there is to be a UI)
+            // Should just show the UI - and not clone.
+            let (transcription_tx, transcription_rx) = channel::unbounded::<f32>();
+            let (ui_tx, ui_rx) = channel::unbounded::<f32>();
+            fanout::spawn(processed_rx, vec![transcription_tx, ui_tx]);
+            ui::show(ui_rx, ui_position);
+            transcription_rx
+        }
+        None => processed_rx,
+    };
 
     // Send audio to transcription thread
     transcription.spawn(transcription_rx, text_tx /* Clone???? */);

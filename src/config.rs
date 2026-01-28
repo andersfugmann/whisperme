@@ -11,6 +11,46 @@ pub struct WhisperConfig {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutputMethod {
+    Xdo,
+    Print,
+}
+
+impl std::str::FromStr for OutputMethod {
+    type Err = std::convert::Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s.to_lowercase().as_str() {
+            "xdo" => Self::Xdo,
+            "print" => Self::Print,
+            _ => Self::default(),
+        })
+    }
+}
+
+impl Default for OutputMethod {
+    fn default() -> Self {
+        #[cfg(feature = "xdo")]
+        return Self::Xdo;
+        #[cfg(not(feature = "xdo"))]
+        return Self::Print;
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct OutputConfig {
+    pub method: OutputMethod,
+}
+
+impl Default for OutputConfig {
+    fn default() -> Self {
+        Self {
+            method: OutputMethod::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UiPosition {
     BottomRight,
     BottomCenter,
@@ -70,6 +110,7 @@ pub struct Config {
     pub whisper: WhisperConfig,
     pub ui: UiConfig,
     pub transcription: TranscriptionConfig,
+    pub output: OutputConfig,
 }
 
 impl Config {
@@ -126,6 +167,7 @@ impl Config {
         let whisper_section = ini.section(Some("whisper"));
         let ui_section = ini.section(Some("ui"));
         let transcription_section = ini.section(Some("transcription"));
+        let output_section = ini.section(Some("output"));
         let defaults = TranscriptionConfig::default();
 
         let model = whisper_section
@@ -170,6 +212,11 @@ impl Config {
             .and_then(|s| s.parse().ok())
             .unwrap_or(defaults.silence_rms_threshold);
 
+        let output_method = output_section
+            .and_then(|s| s.get("method"))
+            .and_then(|s| s.parse().ok())
+            .unwrap_or_default();
+
         Self {
             whisper: WhisperConfig {
                 model,
@@ -185,6 +232,9 @@ impl Config {
                 emit_grace_ms,
                 language_confidence,
                 silence_rms_threshold,
+            },
+            output: OutputConfig {
+                method: output_method,
             },
         }
     }
@@ -206,6 +256,7 @@ impl Default for Config {
                 position: UiPosition::TopCenter,
             },
             transcription: TranscriptionConfig::default(),
+            output: OutputConfig::default(),
         }
     }
 }

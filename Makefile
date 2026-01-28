@@ -29,17 +29,17 @@ build-release: build release ## Build both debug and release
 test: ## Run all tests (excluding hardware and slow tests)
 	cargo test
 
-.PHONY: test-hardware
-test-hardware: ## Run hardware tests (requires audio, display, X11)
-	cargo test --features hardware
+.PHONY: test-system
+test-system: ## Run system tests (requires audio, display, X11)
+	cargo test --features system -- --nocapture
 
 .PHONY: test-slow
 test-slow: download-model-tiny ## Run slow tests (e.g., full transcription pipeline)
 	cargo test --features slow_tests -- --nocapture
 
 .PHONY: test-all
-test-all: ## Run all tests including hardware and slow
-	cargo test --features "hardware slow_tests"
+test-all: ## Run all tests including system and slow
+	cargo test --features "system slow_tests"
 
 .PHONY: download-model-tiny
 download-model-tiny: $(MODELS_DIR)/$(MODEL_TINY) ## Download tiny.en model for testing (~75MB)

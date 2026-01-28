@@ -160,7 +160,7 @@ fn run_pipewire_capture(
 mod tests {
     /// Requires audio hardware - run with: make test-hardware
     #[test]
-    #[cfg(feature = "hardware")]
+    #[cfg(feature = "system")]
     fn test_capture_3_seconds() {
         use super::*;
         use crate::audio_processor::CAPTURE_RATE;

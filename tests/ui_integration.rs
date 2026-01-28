@@ -8,7 +8,7 @@
 //! Run with: make test-hardware
 //! (requires audio hardware and display)
 
-#![cfg(feature = "hardware")]
+#![cfg(feature = "system")]
 
 use std::thread;
 use std::time::{Duration, Instant};

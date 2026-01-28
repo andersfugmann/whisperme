@@ -12,15 +12,11 @@ path = "src/bin/whispermed.rs"
 name = "whisperme"
 path = "src/bin/whisperme.rs"
 
-[[bin]]
-name = "whisperme-config"
-path = "src/bin/whisperme-config.rs"
-
 [dependencies]
 rust-ini = "*"
 pipewire = "*"
 nnnoiseless = "*"
-whisper-rs = { path = "vendor/whisper-rs", optional = true, features = ["vulkan"] }
+whisper-rs = { path = "vendor/whisper-rs", features = ["vulkan"] }
 eframe = "*"
 spectrum-analyzer = "*"
 circular-buffer = "*"
@@ -30,11 +26,12 @@ rubato = "*"
 audioadapter = "*"
 audioadapter-buffers = "*"
 crossbeam-channel = "*"
+libxdo = { version = "*", optional = true }
 
 [features]
-default = ["whisper"]
-whisper = ["dep:whisper-rs"]
-hardware = []    # Tests requiring audio hardware, display, or X11
+default = ["xdo"]
+xdo = ["dep:libxdo"]
+system = []      # Tests requiring audio hardware, display, or X11
 slow_tests = []  # Slow tests (e.g., full transcription pipeline)
 
 [dev-dependencies]
