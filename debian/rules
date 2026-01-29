@@ -16,6 +16,14 @@ override_dh_auto_build:
 override_dh_auto_install:
 	install -D -m 755 target/release/whispermed $(CURDIR)/debian/whisperme/usr/bin/whispermed
 	install -D -m 755 target/release/whisperme $(CURDIR)/debian/whisperme/usr/bin/whisperme
+	install -D -m 644 debian/whispermed.service $(CURDIR)/debian/whisperme/usr/lib/systemd/user/whispermed.service
+	# Documentation
+	install -D -m 644 README.md $(CURDIR)/debian/whisperme/usr/share/doc/whisperme/README.md
+	install -D -m 644 INSTALL.md $(CURDIR)/debian/whisperme/usr/share/doc/whisperme/INSTALL.md
+	install -D -m 644 HOTKEY_SETUP.md $(CURDIR)/debian/whisperme/usr/share/doc/whisperme/HOTKEY_SETUP.md
+	install -D -m 644 FUTURE.md $(CURDIR)/debian/whisperme/usr/share/doc/whisperme/FUTURE.md
+	install -D -m 644 debian/sxhkdrc.example $(CURDIR)/debian/whisperme/usr/share/doc/whisperme/examples/sxhkdrc
+	gzip -9 -c debian/README.Debian > $(CURDIR)/debian/whisperme/usr/share/doc/whisperme/README.Debian.gz
 
 override_dh_auto_clean:
 	cargo clean || true

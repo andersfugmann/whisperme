@@ -1,0 +1,12 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    configure)
+        echo "Note: Run 'systemctl --user daemon-reload' to register the whispermed service."
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

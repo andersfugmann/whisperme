@@ -1,0 +1,28 @@
+whisperme for Debian
+--------------------
+
+Quick Start
+-----------
+
+1. Reload systemd user daemon:
+
+   systemctl --user daemon-reload
+
+2. Start the whisperme daemon:
+
+   systemctl --user start whispermed.service
+
+3. (Optional) Enable auto-start on login:
+
+   systemctl --user enable whispermed.service
+
+4. Configure a hotkey to trigger recording. Example for sxhkd:
+
+   cp /usr/share/doc/whisperme/examples/sxhkdrc ~/.config/sxhkd/sxhkdrc
+   pkill -USR1 sxhkd
+
+5. Press your hotkey and speak. Text is typed into the focused window.
+
+See /usr/share/doc/whisperme/ for full documentation.
+
+ -- Anders Fugmann <anders@fugmann.net>

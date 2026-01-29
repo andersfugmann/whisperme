@@ -83,12 +83,17 @@ pub fn show(audio_rx: AudioReceiver, position: UiPosition) -> JoinHandle<()> {
 
 fn run_ui_window(audio_rx: AudioReceiver, position: UiPosition) {
     use eframe::EventLoopBuilderHook;
-    use winit::platform::wayland::EventLoopBuilderExtWayland;
 
     // Allow running on non-main thread (required for our thread-based architecture)
+    #[cfg(target_os = "linux")]
     let event_loop_builder: EventLoopBuilderHook = Box::new(|builder| {
-        builder.with_any_thread(true);
+        // Use X11 extension - works for both X11 native and XWayland
+        use winit::platform::x11::EventLoopBuilderExtX11;
+        EventLoopBuilderExtX11::with_any_thread(builder, true);
     });
+
+    #[cfg(not(target_os = "linux"))]
+    let event_loop_builder: Option<EventLoopBuilderHook> = None;
 
     let viewport = egui::ViewportBuilder::default()
         .with_inner_size([WINDOW_WIDTH, WINDOW_HEIGHT])

@@ -1,0 +1,14 @@
+[Unit]
+Description=WhisperMe speech-to-text daemon
+Documentation=https://github.com/andersfugmann/whisperme
+After=pipewire.service
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/whispermed
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target
