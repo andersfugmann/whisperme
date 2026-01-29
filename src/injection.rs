@@ -7,6 +7,15 @@ use crossbeam_channel::Receiver;
 
 use crate::config::{OutputConfig, OutputMethod};
 
+/// Global clipboard - lives for program duration to maintain X11 selection ownership.
+#[cfg(feature = "clipboard")]
+static CLIPBOARD: std::sync::LazyLock<std::sync::Mutex<arboard::Clipboard>> =
+    std::sync::LazyLock::new(|| {
+        std::sync::Mutex::new(
+            arboard::Clipboard::new().expect("failed to initialize clipboard"),
+        )
+    });
+
 /// Spawn text output thread.
 ///
 /// Emits each text segment immediately as it arrives.
@@ -79,18 +88,18 @@ fn create_xdo_emitter() -> Emitter {
 
 #[cfg(feature = "clipboard")]
 fn create_clipboard_emitter() -> Emitter {
-    use arboard::Clipboard;
-    use std::cell::RefCell;
+    // Clear clipboard at start of new session
+    {
+        let mut clipboard = CLIPBOARD.lock().unwrap();
+        let _ = clipboard.clear();
+    }
 
-    let clipboard = RefCell::new(Clipboard::new().unwrap_or_else(|e| {
-        eprintln!("error: failed to initialize clipboard: {}", e);
-        std::process::exit(1);
-    }));
-    let buffer = RefCell::new(String::new());
+    let buffer = std::cell::RefCell::new(String::new());
 
     Box::new(move |text| {
         buffer.borrow_mut().push_str(text);
-        if let Err(e) = clipboard.borrow_mut().set_text(buffer.borrow().as_str()) {
+        let mut clipboard = CLIPBOARD.lock().unwrap();
+        if let Err(e) = clipboard.set_text(buffer.borrow().as_str()) {
             eprintln!("error: clipboard set failed: {}", e);
             std::process::exit(1);
         }
@@ -211,5 +220,33 @@ mod tests {
         let handle = injection::spawn(rx, &config);
         test_zenity("Ydo", tx);
         let _ = handle.join();
+    }
+
+    #[test]
+    #[cfg(all(feature = "system", feature = "clipboard", feature = "ydotool"))]
+    fn test_clipboard_injection_with_zenity() {
+        use std::thread;
+
+        use crossbeam_channel as channel;
+
+        use crate::config::{OutputConfig, OutputMethod};
+        use crate::injection;
+        use crate::ydotool::VirtualKeyboard;
+
+        let (tx, rx) = channel::unbounded::<String>();
+        let config = OutputConfig {
+            method: OutputMethod::Clipboard,
+            keyboard_layout: "auto".to_string(),
+        };
+        let injection_handle = injection::spawn(rx, &config);
+
+        let keyboard = VirtualKeyboard::new("auto").expect("Clipboard: failed to create VirtualKeyboard");
+        let thread = thread::spawn(move || {
+            let _ = injection_handle.join();
+            println!("Send paste to keyboard");
+            keyboard.send_paste();
+        });
+        test_zenity("Clipboard", tx);
+        let _ = thread.join();
     }
 }

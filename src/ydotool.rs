@@ -18,6 +18,8 @@ const EV_SYN: u16 = 0x00;
 const EV_KEY: u16 = 0x01;
 const SYN_REPORT: u16 = 0x00;
 const KEY_LEFTSHIFT: u16 = 42;
+const KEY_LEFTCTRL: u16 = 29;
+const KEY_V: u16 = 47;
 
 /// Linux input_event struct (matches kernel definition)
 #[repr(C)]
@@ -98,6 +100,16 @@ impl VirtualKeyboard {
                 thread::sleep(Duration::from_millis(1));
             }
         });
+    }
+
+    /// Send Ctrl+V key combination (for pasting from clipboard).
+    pub fn send_paste(&self) {
+        self.send_key(KEY_LEFTCTRL, 1);
+        self.send_key(KEY_V, 1);
+        thread::sleep(Duration::from_millis(1));
+        self.send_key(KEY_V, 0);
+        self.send_key(KEY_LEFTCTRL, 0);
+        thread::sleep(Duration::from_millis(1));
     }
 
     /// Send a single key event to ydotoold.
