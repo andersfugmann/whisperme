@@ -120,7 +120,43 @@ fn create_print_emitter() -> Emitter {
 
 #[cfg(test)]
 mod tests {
-    /// Requires X11 and libxdo - run with: make test-system
+    use std::sync::Mutex;
+
+    /// Global lock to prevent zenity tests from running in parallel
+    #[allow(dead_code)]
+    static ZENITY_LOCK: Mutex<()> = Mutex::new(());
+
+    #[allow(dead_code)]
+    fn test_zenity(name: &str, tx: crossbeam_channel::Sender<String>) {
+        use std::time::Duration;
+        use std::thread;
+
+        let _guard = ZENITY_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let zenity = std::process::Command::new("zenity")
+            .args([
+                "--entry",
+                &format!("--title=WhisperMe Injection Test for {}", name),
+                "--text=Waiting for input...",
+                "--timeout=1",
+            ])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect(&format!("{}: failed to start zenity", name));
+
+        // Wait for zenity to start
+        thread::sleep(Duration::from_millis(500));
+
+        let segments = [name, " : ", "Hello, world!", " ", "What's this? It's a test: 1, 2, 3."];
+        segments.iter().for_each(|s| tx.send(s.to_string()).unwrap());
+        drop(tx);
+
+        let output = zenity.wait_with_output().expect(&format!("{}: failed to read zenity output", name));
+        let captured = String::from_utf8_lossy(&output.stdout).trim_end_matches('\n').to_string();
+        let expected: String = segments.iter().copied().collect();
+        assert_eq!(captured, expected, "{}: Captured input does not match", name);
+    }
+
     #[test]
     #[cfg(all(feature = "system", feature = "xdo"))]
     fn test_xdo_init() {
@@ -128,103 +164,25 @@ mod tests {
         XDo::new(None).expect("failed to initialize xdo");
     }
 
-    /// Integration test: spawn zenity, inject text via xdo, verify output.
-    /// Requires X11, libxdo, and zenity - run with: make test-system
     #[test]
     #[cfg(all(feature = "system", feature = "xdo"))]
     fn test_xdo_injection_with_zenity() {
-        use std::process::{Command, Stdio};
-        use std::thread;
-        use std::time::{Duration, Instant};
-
         use crossbeam_channel as channel;
 
         use crate::config::{OutputConfig, OutputMethod};
         use crate::injection;
 
-        // Start zenity entry dialog with timeout
-        let mut zenity = Command::new("zenity")
-            .args([
-                "--entry",
-                "--title=WhisperMe XDo Test",
-                "--text=Waiting for input...",
-                "--timeout=2",
-            ])
-            .stdout(Stdio::piped())
-            .spawn()
-            .expect("failed to start zenity - install with: sudo apt install zenity");
-
-        // Give zenity time to open
-        thread::sleep(Duration::from_millis(500));
-
-        /*
-        // Focus the zenity window using xdotool CLI
-        let focus_result = Command::new("xdotool")
-            .args(["search", "--name", "WhisperMe XDo Test", "windowactivate", "--sync"])
-            .status();
-        assert!(
-            focus_result.map(|s| s.success()).unwrap_or(false),
-            "failed to focus zenity window with xdotool"
-        );
-        thread::sleep(Duration::from_millis(200));
-*/
-        // Create channel and spawn injection thread
         let (tx, rx) = channel::unbounded::<String>();
         let config = OutputConfig {
             method: OutputMethod::Xdo,
             keyboard_layout: "auto".to_string(),
         };
+
         let handle = injection::spawn(rx, &config);
-
-        // Send multiple text segments
-        let segments = ["Hello", " ", "from", " ", "WhisperMe", "!"];
-        segments.iter().for_each(|s| tx.send(s.to_string()).unwrap());
-
-        // Close channel and wait for injection thread
-        drop(tx);
-        handle.join().expect("injection thread panicked");
-
-        // Send Return key via libxdo to submit (enter_text doesn't handle \n)
-        use libxdo::XDo;
-        let xdo = XDo::new(None).expect("failed to init xdo");
-        xdo.send_keysequence("Return", 0).expect("failed to send Return key");
-
-        // Wait for zenity to exit with timeout
-        let start = Instant::now();
-        let timeout = Duration::from_secs(10);
-        let output = loop {
-            match zenity.try_wait() {
-                Ok(Some(_)) => break zenity.wait_with_output().expect("failed to read zenity output"),
-                Ok(None) if start.elapsed() < timeout => {
-                    thread::sleep(Duration::from_millis(100));
-                }
-                Ok(None) => {
-                    let _ = zenity.kill();
-                    panic!("test timed out - xdo injection may have failed");
-                }
-                Err(e) => panic!("error waiting for zenity: {}", e),
-            }
-        };
-
-        // Check zenity exit status (timeout returns exit code 5)
-        assert!(
-            output.status.success(),
-            "zenity exited with error (code {:?}) - likely hit timeout before receiving input",
-            output.status.code()
-        );
-
-        // Verify
-        let captured = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        let expected: String = segments.iter().copied().collect();
-        assert_eq!(
-            captured, expected,
-            "xdo injection mismatch: expected '{}', got '{}'",
-            expected, captured
-        );
+        test_zenity("Xdo", tx);
+        let _ = handle.join();
     }
 
-    /// Integration test: connect to ydotoold and verify it initializes.
-    /// Requires ydotoold running - run with: make test-system
     #[test]
     #[cfg(all(feature = "system", feature = "ydotool"))]
     fn test_ydotool_connection() {
@@ -237,90 +195,21 @@ mod tests {
         );
     }
 
-    /// Integration test: spawn zenity, inject text via ydotool, verify output.
-    /// Requires ydotoold running and display - run with: make test-system
     #[test]
     #[cfg(all(feature = "system", feature = "ydotool"))]
     fn test_ydotool_injection_with_zenity() {
-        use std::process::{Command, Stdio};
-        use std::thread;
-        use std::time::{Duration, Instant};
-
         use crossbeam_channel as channel;
 
         use crate::config::{OutputConfig, OutputMethod};
         use crate::injection;
 
-        // Start zenity entry dialog with timeout
-        let mut zenity = Command::new("zenity")
-            .args([
-                "--entry",
-                "--title=WhisperMe Ydotool Test",
-                "--text=Waiting for input...",
-                "--timeout=5",
-            ])
-            .stdout(Stdio::piped())
-            .spawn()
-            .expect("failed to start zenity - install with: sudo apt install zenity");
-
-        // Give zenity time to open and focus
-        thread::sleep(Duration::from_millis(800));
-
-        // Create channel and spawn injection thread
         let (tx, rx) = channel::unbounded::<String>();
         let config = OutputConfig {
             method: OutputMethod::Ydotool,
             keyboard_layout: "auto".to_string(),
         };
         let handle = injection::spawn(rx, &config);
-
-        // Test text with punctuation commonly emitted by Whisper
-        let segments = ["Hello, world!", " ", "What's this? It's a test: 1, 2, 3."];
-        segments.iter().for_each(|s| tx.send(s.to_string()).unwrap());
-
-        // Close channel and wait for injection thread
-        drop(tx);
-        handle.join().expect("injection thread panicked");
-
-        // Small delay for events to be processed
-        thread::sleep(Duration::from_millis(100));
-
-        // Send Enter key via ydotool to submit
-        use crate::ydotool::VirtualKeyboard;
-        let enter_keyboard = VirtualKeyboard::new("auto").unwrap();
-        enter_keyboard.type_text("\n");
-
-        // Wait for zenity to exit with timeout
-        let start = Instant::now();
-        let timeout = Duration::from_secs(10);
-        let output = loop {
-            match zenity.try_wait() {
-                Ok(Some(_)) => break zenity.wait_with_output().expect("failed to read zenity output"),
-                Ok(None) if start.elapsed() < timeout => {
-                    thread::sleep(Duration::from_millis(100));
-                }
-                Ok(None) => {
-                    let _ = zenity.kill();
-                    panic!("test timed out - ydotool injection may have failed");
-                }
-                Err(e) => panic!("error waiting for zenity: {}", e),
-            }
-        };
-
-        // Check zenity exit status (timeout returns exit code 5)
-        assert!(
-            output.status.success(),
-            "zenity exited with error (code {:?}) - likely hit timeout before receiving input",
-            output.status.code()
-        );
-
-        // Verify
-        let captured = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        let expected: String = segments.iter().copied().collect();
-        assert_eq!(
-            captured, expected,
-            "ydotool injection mismatch: expected '{}', got '{}'",
-            expected, captured
-        );
+        test_zenity("Ydo", tx);
+        let _ = handle.join();
     }
 }

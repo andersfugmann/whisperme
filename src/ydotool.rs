@@ -89,13 +89,13 @@ impl VirtualKeyboard {
                     self.send_key(KEY_LEFTSHIFT, 1);
                 }
                 self.send_key(keycode, 1);
-                thread::sleep(Duration::from_millis(0));
+                thread::sleep(Duration::from_millis(1));
                 self.send_key(keycode, 0);
 
                 if shift {
                     self.send_key(KEY_LEFTSHIFT, 0);
                 }
-                thread::sleep(Duration::from_millis(10));
+                thread::sleep(Duration::from_millis(1));
             }
         });
     }
