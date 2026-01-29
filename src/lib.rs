@@ -7,6 +7,9 @@ pub mod socket;
 pub mod transcription;
 pub mod ui;
 
+#[cfg(feature = "ydotool")]
+pub mod ydotool;
+
 /// Extension trait for fail-fast error handling.
 ///
 /// All operations use `.unwrap_or_exit()` which:

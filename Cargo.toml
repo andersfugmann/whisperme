@@ -31,10 +31,14 @@ audioadapter = "*"
 audioadapter-buffers = "*"
 crossbeam-channel = "*"
 libxdo = { version = "*", optional = true }
+arboard = { version = "*", optional = true }
+xkbcommon = { version = "*", optional = true }
 
 [features]
 default = ["xdo"]
 xdo = ["dep:libxdo"]
+clipboard = ["dep:arboard"]
+ydotool = ["dep:xkbcommon"]
 system = []      # Tests requiring audio hardware, display, or X11
 slow_tests = []  # Slow tests (e.g., full transcription pipeline)
 

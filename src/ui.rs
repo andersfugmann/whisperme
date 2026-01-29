@@ -90,18 +90,24 @@ fn run_ui_window(audio_rx: AudioReceiver, position: UiPosition) {
         builder.with_any_thread(true);
     });
 
+    let viewport = egui::ViewportBuilder::default()
+        .with_inner_size([WINDOW_WIDTH, WINDOW_HEIGHT])
+        .with_decorations(false)
+        .with_always_on_top()
+        .with_titlebar_shown(false)
+        .with_resizable(false)
+        .with_transparent(true)
+        .with_mouse_passthrough(true)
+        .with_close_button(false);
+
+    // X11-specific: set splash window type to avoid taskbar/focus
+    let viewport = match std::env::var("WAYLAND_DISPLAY") {
+        Err(_) => viewport.with_window_type(egui::X11WindowType::Splash),
+        Ok(_) => viewport,
+    };
+
     let native_options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_window_type(egui::X11WindowType::Splash)
-            .with_inner_size([WINDOW_WIDTH, WINDOW_HEIGHT])
-            .with_decorations(false)
-            .with_always_on_top()
-            .with_titlebar_shown(false)
-            .with_resizable(false)
-            .with_transparent(true)
-            .with_always_on_top()
-            .with_mouse_passthrough(true)
-            .with_close_button(false),
+        viewport,
         event_loop_builder: Some(event_loop_builder),
         ..Default::default()
     };

@@ -35,9 +35,13 @@ sudo apt install libpipewire-0.3-dev libclang-dev libvulkan-dev glslc libxdo-dev
 make build
 ```
 
-To build without xdo (prints to stdout instead):
+To build with specific output methods:
 ```bash
-cargo build --no-default-features
+cargo build --no-default-features                    # print only
+cargo build --features xdo                           # xdo (default)
+cargo build --features clipboard                     # clipboard
+cargo build --features uinput                        # uinput (Wayland)
+cargo build --features "xdo,clipboard,uinput"        # all methods
 ```
 
 ## Testing
@@ -90,7 +94,36 @@ Available models: tiny, tiny.en, base, base.en, small, small.en, medium, medium.
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `method` | `xdo` | Output method: `xdo` (type into focused window) or `print` (stdout) |
+| `method` | `xdo` | Output method (see below) |
+| `keyboard_layout` | `auto` | Keyboard layout for ydotool (auto, us, dk, de, gb, etc.) |
+
+Output methods:
+- `xdo` - Type into focused X11 window (requires libxdo)
+- `clipboard` - Copy to system clipboard
+- `ydotool` - Simulate keyboard via ydotoold (works on X11 and Wayland)
+- `print` - Print to stdout
+
+**ydotool setup:** The `ydotool` method requires the ydotoold daemon. Install and enable it:
+
+```bash
+# Install ydotool (Debian/Ubuntu)
+sudo apt install ydotool
+
+# Enable and start the systemd service
+sudo systemctl enable ydotoold
+sudo systemctl start ydotoold
+
+# Allow your user to access the socket
+sudo usermod -aG input $USER
+# Log out and back in for group change to take effect
+```
+
+Alternatively, run ydotoold manually with permissive socket:
+```bash
+sudo ydotoold --socket-perm 0666 &
+```
+
+**ydotool keyboard layout:** When using `ydotool`, set `keyboard_layout` to match your system layout. Use `auto` to detect from localectl or setxkbmap. Common layouts: `us`, `dk`, `de`, `gb`, `fr`, `es`.
 
 ### Example
 
@@ -111,6 +144,7 @@ silence_threshold_dbfs = -80
 
 [output]
 method = xdo
+keyboard_layout = auto
 ```
 
 ## License

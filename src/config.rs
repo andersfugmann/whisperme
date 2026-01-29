@@ -13,6 +13,8 @@ pub struct WhisperConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputMethod {
     Xdo,
+    Clipboard,
+    Ydotool,
     Print,
 }
 
@@ -22,6 +24,8 @@ impl std::str::FromStr for OutputMethod {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(match s.to_lowercase().as_str() {
             "xdo" => Self::Xdo,
+            "clipboard" => Self::Clipboard,
+            "ydotool" => Self::Ydotool,
             "print" => Self::Print,
             _ => Self::default(),
         })
@@ -40,12 +44,15 @@ impl Default for OutputMethod {
 #[derive(Debug, Clone)]
 pub struct OutputConfig {
     pub method: OutputMethod,
+    /// Keyboard layout for ydotool (e.g., "us", "dk", "de"). "auto" detects from system.
+    pub keyboard_layout: String,
 }
 
 impl Default for OutputConfig {
     fn default() -> Self {
         Self {
             method: OutputMethod::default(),
+            keyboard_layout: "auto".to_string(),
         }
     }
 }
@@ -221,6 +228,11 @@ impl Config {
             .and_then(|s| s.parse().ok())
             .unwrap_or_default();
 
+        let keyboard_layout = output_section
+            .and_then(|s| s.get("keyboard_layout"))
+            .unwrap_or("auto")
+            .to_string();
+
         Self {
             whisper: WhisperConfig {
                 model,
@@ -240,6 +252,7 @@ impl Config {
             },
             output: OutputConfig {
                 method: output_method,
+                keyboard_layout,
             },
         }
     }
