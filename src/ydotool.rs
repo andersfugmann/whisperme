@@ -30,6 +30,19 @@ struct InputEvent {
     value: i32,
 }
 
+impl InputEvent {
+    /// Serialize to bytes (little-endian, matching native Linux layout)
+    fn to_bytes(&self) -> [u8; 24] {
+        let mut buf = [0u8; 24];
+        buf[0..8].copy_from_slice(&self.tv_sec.to_ne_bytes());
+        buf[8..16].copy_from_slice(&self.tv_usec.to_ne_bytes());
+        buf[16..18].copy_from_slice(&self.type_.to_ne_bytes());
+        buf[18..20].copy_from_slice(&self.code.to_ne_bytes());
+        buf[20..24].copy_from_slice(&self.value.to_ne_bytes());
+        buf
+    }
+}
+
 /// Virtual keyboard that sends keystrokes via ydotoold socket.
 pub struct VirtualKeyboard {
     socket: UnixDatagram,
@@ -59,14 +72,12 @@ impl VirtualKeyboard {
 
     /// Find ydotoold socket path.
     fn find_socket_path() -> String {
-        // Check XDG_RUNTIME_DIR first (preferred)
         if let Ok(xrd) = std::env::var("XDG_RUNTIME_DIR") {
             let path = format!("{}/.ydotool_socket", xrd);
             if std::path::Path::new(&path).exists() {
                 return path;
             }
         }
-        // Fall back to /tmp
         "/tmp/.ydotool_socket".to_string()
     }
 
@@ -78,12 +89,13 @@ impl VirtualKeyboard {
                     self.send_key(KEY_LEFTSHIFT, 1);
                 }
                 self.send_key(keycode, 1);
-                thread::sleep(Duration::from_millis(5));
+                thread::sleep(Duration::from_millis(0));
                 self.send_key(keycode, 0);
+
                 if shift {
                     self.send_key(KEY_LEFTSHIFT, 0);
                 }
-                thread::sleep(Duration::from_millis(5));
+                thread::sleep(Duration::from_millis(10));
             }
         });
     }
@@ -111,38 +123,21 @@ impl VirtualKeyboard {
 
     /// Send raw input_event to socket.
     fn send_event(&self, event: &InputEvent) -> io::Result<()> {
-        let bytes: &[u8] = unsafe {
-            std::slice::from_raw_parts(
-                event as *const InputEvent as *const u8,
-                std::mem::size_of::<InputEvent>(),
-            )
-        };
-        self.socket.send(bytes)?;
+        self.socket.send(&event.to_bytes())?;
         Ok(())
     }
 }
 
+fn query_env() -> Option<String> {
+    std::env::var("XKB_DEFAULT_LAYOUT").ok()
+}
+
 /// Detect keyboard layout from system.
 fn detect_keyboard_layout() -> String {
-    // 1. Environment variable (Wayland compositors)
-    if let Ok(layout) = std::env::var("XKB_DEFAULT_LAYOUT") {
-        if !layout.is_empty() {
-            return layout;
-        }
-    }
+    [query_env, query_localectl, query_setxkbmap].iter()
+        .find_map(|f| f().filter(|s| !s.is_empty()))
+        .unwrap_or("us".to_string())
 
-    // 2. localectl (systemd - works on X11 and Wayland)
-    if let Some(layout) = query_localectl() {
-        return layout;
-    }
-
-    // 3. setxkbmap (X11 fallback)
-    if let Some(layout) = query_setxkbmap() {
-        return layout;
-    }
-
-    // 4. Default to US
-    "us".to_string()
 }
 
 /// Query localectl for keyboard layout.

@@ -21,30 +21,30 @@ deps: ## Install build dependencies
 
 .PHONY: build
 build: submodules ## Build the project (debug)
-	cargo build
+	cargo build --features full
 
 .PHONY: release
 release: submodules ## Build the project (release)
-	cargo build --release
+	cargo build --release --features "full"
 
 .PHONY: build-release
 build-release: build release ## Build both debug and release
 
-.PHONY: testmodel
+.PHONY: test
 test: ## Run all tests (excluding hardware and slow tests)
 	cargo test
 
 .PHONY: test-system
 test-system: ## Run system tests (requires audio, display, X11)
-	cargo test --features system -- --nocapture
+	cargo test --features "system" -- --nocapture
 
 .PHONY: test-slow
 test-slow: download-model-tiny ## Run slow tests (e.g., full transcription pipeline)
-	cargo test --features slow_tests -- --nocapture
+	cargo test --features "slow_tests" -- --nocapture
 
 .PHONY: test-all
 test-all: ## Run all tests including system and slow
-	cargo test --features "system slow_tests"
+	cargo test --features "full,slow_tests,system"
 
 .PHONY: audio-level
 audio-level: ## Run audio level meter (shows dBFS)

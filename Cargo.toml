@@ -36,6 +36,7 @@ xkbcommon = { version = "*", optional = true }
 
 [features]
 default = ["xdo"]
+full = ["xdo", "clipboard", "ydotool"]
 xdo = ["dep:libxdo"]
 clipboard = ["dep:arboard"]
 ydotool = ["dep:xkbcommon"]
