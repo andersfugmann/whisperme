@@ -60,7 +60,7 @@ $(MODELS_DIR)/$(MODEL_TINY):
 
 .PHONY: run
 run: build ## Run the daemon
-	cargo run --bin whispermed
+	cargo run --features full --bin whispermed
 
 .PHONY: transcribe-start
 transcribe-start: build ## Start Transcription

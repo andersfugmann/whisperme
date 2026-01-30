@@ -42,6 +42,23 @@ const POSITIONS: &[(&str, &str)] = &[
     ("bottom-right", "Bottom Right"),
 ];
 
+const OUTPUT_METHODS: &[(&str, &str)] = &[
+    ("xdo", "Xdo (X11 typing)"),
+    ("ydotool", "Ydotool (Wayland/X11)"),
+    ("clipboard", "Clipboard"),
+    ("print", "Print to stdout"),
+];
+
+const KEYBOARD_LAYOUTS: &[(&str, &str)] = &[
+    ("auto", "Auto-detect"),
+    ("us", "US"),
+    ("dk", "Danish"),
+    ("de", "German"),
+    ("fr", "French"),
+    ("es", "Spanish"),
+    ("uk", "UK"),
+];
+
 const DEFAULT_CHUNK_INTERVAL_MS: usize = 1000;
 const DEFAULT_EMIT_GRACE_MS: usize = 1200;
 const DEFAULT_LANGUAGE_CONFIDENCE: f32 = 0.7;
@@ -78,7 +95,7 @@ fn main() {
 fn run_config_gui() {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([420.0, 480.0])
+            .with_inner_size([420.0, 580.0])
             .with_resizable(false),
         ..Default::default()
     };
@@ -98,6 +115,8 @@ struct ConfigApp {
     emit_grace_ms: usize,
     language_confidence: f32,
     silence_threshold_dbfs: f32,
+    output_method: String,
+    keyboard_layout: String,
     models_dir: PathBuf,
     download_status: Arc<Mutex<Option<String>>>,
 }
@@ -114,6 +133,8 @@ impl ConfigApp {
             emit_grace_ms: cfg.emit_grace_ms,
             language_confidence: cfg.language_confidence,
             silence_threshold_dbfs: cfg.silence_threshold_dbfs,
+            output_method: cfg.output_method,
+            keyboard_layout: cfg.keyboard_layout,
             models_dir: models_dir(),
             download_status: Arc::new(Mutex::new(None)),
         }
@@ -211,7 +232,13 @@ impl ConfigApp {
             self.emit_grace_ms,
             self.language_confidence,
             self.silence_threshold_dbfs,
+            &self.output_method,
+            &self.keyboard_layout,
         );
+    }
+
+    fn is_ydotool(&self) -> bool {
+        self.output_method == "ydotool"
     }
 }
 
@@ -385,6 +412,63 @@ impl eframe::App for ConfigApp {
                     ui.end_row();
                 });
 
+            ui.add_space(12.0);
+            ui.separator();
+            ui.add_space(8.0);
+
+            // Output settings
+            ui.label(egui::RichText::new("Text Output").strong());
+            ui.add_space(4.0);
+
+            ui.horizontal(|ui| {
+                ui.label("Output method:");
+                let display = OUTPUT_METHODS
+                    .iter()
+                    .find(|(c, _)| *c == self.output_method)
+                    .map(|(_, n)| *n)
+                    .unwrap_or(&self.output_method);
+                egui::ComboBox::from_id_salt("output")
+                    .selected_text(display)
+                    .show_ui(ui, |ui| {
+                        for (code, name) in OUTPUT_METHODS {
+                            ui.selectable_value(
+                                &mut self.output_method,
+                                code.to_string(),
+                                *name,
+                            );
+                        }
+                    });
+            });
+
+            ui.add_enabled_ui(self.is_ydotool(), |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Keyboard layout:");
+                    let display = KEYBOARD_LAYOUTS
+                        .iter()
+                        .find(|(c, _)| *c == self.keyboard_layout)
+                        .map(|(_, n)| *n)
+                        .unwrap_or(&self.keyboard_layout);
+                    egui::ComboBox::from_id_salt("kbd")
+                        .selected_text(display)
+                        .show_ui(ui, |ui| {
+                            for (code, name) in KEYBOARD_LAYOUTS {
+                                ui.selectable_value(
+                                    &mut self.keyboard_layout,
+                                    code.to_string(),
+                                    *name,
+                                );
+                            }
+                        });
+                });
+            });
+
+            if !self.is_ydotool() {
+                ui.horizontal(|ui| {
+                    ui.add_space(52.0);
+                    ui.label(egui::RichText::new("Keyboard layout only applies to ydotool").italics().weak());
+                });
+            }
+
             // Buttons
             ui.with_layout(egui::Layout::bottom_up(egui::Align::RIGHT), |ui| {
                 ui.horizontal(|ui| {
@@ -428,6 +512,8 @@ struct LoadedConfig {
     emit_grace_ms: usize,
     language_confidence: f32,
     silence_threshold_dbfs: f32,
+    output_method: String,
+    keyboard_layout: String,
 }
 
 fn load_config() -> LoadedConfig {
@@ -436,6 +522,7 @@ fn load_config() -> LoadedConfig {
     let w = ini.section(Some("whisper"));
     let u = ini.section(Some("ui"));
     let t = ini.section(Some("transcription"));
+    let o = ini.section(Some("output"));
     LoadedConfig {
         model: w
             .and_then(|s| s.get("model"))
@@ -469,6 +556,14 @@ fn load_config() -> LoadedConfig {
             .and_then(|s| s.get("silence_threshold_dbfs"))
             .and_then(|v| v.parse().ok())
             .unwrap_or(DEFAULT_SILENCE_THRESHOLD_DBFS),
+        output_method: o
+            .and_then(|s| s.get("method"))
+            .unwrap_or("xdo")
+            .to_string(),
+        keyboard_layout: o
+            .and_then(|s| s.get("keyboard_layout"))
+            .unwrap_or("auto")
+            .to_string(),
     }
 }
 
@@ -481,6 +576,8 @@ fn save_config(
     emit_grace_ms: usize,
     language_confidence: f32,
     silence_threshold_dbfs: f32,
+    output_method: &str,
+    keyboard_layout: &str,
 ) {
     let path = config_path();
     let _ = std::fs::create_dir_all(path.parent().unwrap());
@@ -499,5 +596,8 @@ fn save_config(
         .set("emit_grace_ms", emit_grace_ms.to_string())
         .set("language_confidence", language_confidence.to_string())
         .set("silence_threshold_dbfs", silence_threshold_dbfs.to_string());
+    ini.with_section(Some("output"))
+        .set("method", output_method)
+        .set("keyboard_layout", keyboard_layout);
     let _ = ini.write_to_file(&path);
 }
