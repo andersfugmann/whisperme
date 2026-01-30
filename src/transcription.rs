@@ -164,7 +164,7 @@ fn process_audio(
                 );
 
                 if end_ms <= emit_threshold_ms || !recording {
-                    eprintln!("*** => Emit segment");
+                    eprintln!("*** => Segment expired");
                     // Ignore silence
                     if rms > config.silence_rms_threshold {
                         let text = text.to_string();
@@ -174,9 +174,10 @@ fn process_audio(
                         } else {
                             text
                         };
+                        eprintln!("*** => Emit segment: {:?}", text);
                         let _ = text_tx.send(text);
                     } else {
-                        println!("Segment dropped as silence");
+                        println!("*** => Segment dropped as silence");
                     }
                     end_ms
                 } else {
