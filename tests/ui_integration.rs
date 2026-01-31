@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 
 use crossbeam_channel as channel;
 
-use whisperme::audio::AudioCapture;
+use whisperme::audio_capture;
 use whisperme::audio_processor;
 use whisperme::audio_processor::{CAPTURE_RATE, SAMPLE_RATE};
 use whisperme::config::UiPosition;
@@ -23,8 +23,7 @@ use whisperme::config::UiPosition;
 /// Test that audio capture works and produces samples.
 #[test]
 fn test_audio_capture_produces_samples() {
-    let (tx, rx) = channel::unbounded();
-    let _capture = AudioCapture::new(tx);
+    let (rx, stop_capture) = audio_capture::start();
 
     // Allow capture thread to initialize
     thread::sleep(Duration::from_millis(500));
@@ -41,6 +40,7 @@ fn test_audio_capture_produces_samples() {
             Err(channel::RecvTimeoutError::Disconnected) => break,
         }
     }
+    stop_capture();
 
     println!("Captured {} samples in {:?}", sample_count, start.elapsed());
     // Allow 20% margin for timing
@@ -59,10 +59,11 @@ fn test_audio_flows_to_multiple_receivers() {
     use whisperme::fanout;
 
     // Create pipeline: capture → processor → fanout → receivers
-    let (raw_tx, raw_rx) = channel::unbounded::<f32>();
     let (processed_tx, processed_rx) = channel::unbounded::<f32>();
     let (transc_tx, transc_rx) = channel::unbounded::<f32>();
     let (ui_tx, ui_rx) = channel::unbounded::<f32>();
+
+    let (raw_rx, stop_capture) = audio_capture::start();
 
     // Spawn processor thread
     thread::spawn(move || {
@@ -76,9 +77,6 @@ fn test_audio_flows_to_multiple_receivers() {
 
     // Spawn fanout
     fanout::spawn(processed_rx, vec![transc_tx, ui_tx]);
-
-    // Start capture
-    let _capture = AudioCapture::new(raw_tx);
 
     // Allow capture to initialize
     thread::sleep(Duration::from_millis(500));
@@ -113,6 +111,7 @@ fn test_audio_flows_to_multiple_receivers() {
 
     let ui_count = ui_handle.join().unwrap();
     let transc_count = transc_handle.join().unwrap();
+    stop_capture();
 
     println!(
         "UI receiver got {} samples, Transcription got {}",
@@ -139,17 +138,15 @@ fn test_ui_window_with_audio() {
     use whisperme::ui;
 
     // Spawn UI thread
-
-    // Create audio capture with fan-out
-    let (capture_tx, capture_rx) = channel::unbounded();
+    let (capture_rx, stop_capture) = audio_capture::start();
     let (ui_audio_tx, ui_audio_rx) = channel::unbounded();
-    let _capture = AudioCapture::new(capture_tx);
     audio_processor::spawn(capture_rx, ui_audio_tx);
 
     ui::show(ui_audio_rx, UiPosition::BottomRight);
 
     // Let it run for 5 seconds for visual inspection
     thread::sleep(Duration::from_secs(5));
+    stop_capture();
 
     println!("UI test complete - window should have appeared and closed");
 }

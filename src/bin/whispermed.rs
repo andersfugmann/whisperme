@@ -2,7 +2,7 @@ use std::thread;
 
 use crossbeam_channel as channel;
 
-use whisperme::audio;
+use whisperme::audio_capture;
 use whisperme::audio_processor;
 use whisperme::config::{Config, OutputConfig, UiPosition};
 use whisperme::fanout;
@@ -89,7 +89,7 @@ fn start_recording(
     ui_tx: &UiSender,
 ) -> Box<dyn FnOnce()> {
     // Start audio capture
-    let (audio_rx, stop_capture) = audio::start();
+    let (audio_rx, stop_capture) = audio_capture::start();
 
     // Create processed audio channel
     let (processed_tx, processed_rx) = channel::unbounded::<f32>(); // 16kHz processed

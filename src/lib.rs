@@ -1,4 +1,4 @@
-pub mod audio;
+pub mod audio_capture;
 pub mod audio_processor;
 pub mod config;
 pub mod fanout;

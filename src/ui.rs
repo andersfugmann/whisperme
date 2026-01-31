@@ -16,7 +16,7 @@ use spectrum_analyzer::scaling::divide_by_N_sqrt;
 use spectrum_analyzer::windows::hann_window;
 use spectrum_analyzer::{FrequencyLimit, samples_fft_to_spectrum};
 
-use crate::audio::AudioReceiver;
+use crate::audio_capture::AudioReceiver;
 use crate::audio_processor::SAMPLE_RATE;
 use crate::config::UiPosition;
 

@@ -133,7 +133,6 @@ fn test_audio_to_text_pipeline() {
 
     let (audio_tx, audio_rx) = channel::unbounded::<f32>();
     let (processed_tx, processed_rx) = channel::unbounded::<f32>();
-    let (text_tx, text_rx) = channel::unbounded::<String>();
 
     audio_processor::spawn(audio_rx, processed_tx);
 
@@ -168,9 +167,8 @@ fn test_audio_to_text_pipeline() {
     }
     drop(audio_tx);
 
-    // Send transcription request
-    // esentially no reason to send a message here. Just spawn
-    transcription.spawn(processed_rx, text_tx);
+    // Send audio to transcription thread
+    let text_rx = transcription.start(processed_rx);
 
     // Collect transcribed text
     let mut transcribed_text = String::new();

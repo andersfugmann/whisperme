@@ -11,7 +11,7 @@ use whisper_rs::{
 };
 
 use crate::UnwrapOrExit;
-use crate::audio::{AudioReceiver, TextSender};
+use crate::audio_capture::{AudioReceiver, TextSender};
 use crate::audio_processor::SAMPLE_RATE;
 use crate::config::{TranscriptionConfig, WhisperConfig};
 use std::sync::Arc;

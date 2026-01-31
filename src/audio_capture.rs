@@ -142,7 +142,7 @@ mod tests {
         use crate::audio_processor::CAPTURE_RATE;
         use std::time::{Duration, Instant};
 
-        let (capture_rx, stop_capture) = AudioCapture::start();
+        let (capture_rx, stop_capture) = start();
 
         // Allow startup time
         thread::sleep(Duration::from_millis(100));
@@ -153,7 +153,7 @@ mod tests {
         let timeout = Duration::from_secs(4);
 
         while sample_count < expected_samples && start.elapsed() < timeout {
-            match rx.recv_timeout(Duration::from_millis(10)) {
+            match capture_rx.recv_timeout(Duration::from_millis(10)) {
                 Ok(_) => sample_count += 1,
                 Err(channel::RecvTimeoutError::Timeout) => continue,
                 Err(channel::RecvTimeoutError::Disconnected) => break,
