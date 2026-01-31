@@ -28,10 +28,25 @@ enum ControlMessage {
     Stop,
 }
 
-/// Handle for audio capture.
-/// Captures raw 48kHz audio and sends samples to the provided channel.
+/// Handle for audio capture. Stops capture when dropped.
+pub struct AudioCapture {
+    stop_sender: Option<pw::channel::Sender<ControlMessage>>,
+    thread: Option<thread::JoinHandle<()>>,
+}
 
-pub fn start() -> (channel::Receiver<f32>, impl FnOnce()) {
+impl Drop for AudioCapture {
+    fn drop(&mut self) {
+        if let Some(sender) = self.stop_sender.take() {
+            let _ = sender.send(ControlMessage::Stop);
+        }
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+/// Start audio capture. Returns receiver for samples and handle that stops capture on drop.
+pub fn start() -> (channel::Receiver<f32>, AudioCapture) {
     let (audio_tx, audio_rx) = channel::unbounded::<f32>();
     pw::init();
 
@@ -40,13 +55,12 @@ pub fn start() -> (channel::Receiver<f32>, impl FnOnce()) {
     let thread = thread::spawn(move || {
         run_pipewire_capture(stop_receiver, audio_tx);
     });
-    let stop_fn = move || {
-        stop_sender
-            .send(ControlMessage::Stop)
-            .expect("pipewire thread died");
-        thread.join().expect("pipewire thread panicked");
+    
+    let handle = AudioCapture {
+        stop_sender: Some(stop_sender),
+        thread: Some(thread),
     };
-    (audio_rx, stop_fn)
+    (audio_rx, handle)
 }
 
 /// PipeWire capture thread - runs MainLoop, sends individual samples to raw_tx
@@ -142,7 +156,7 @@ mod tests {
         use crate::audio_processor::CAPTURE_RATE;
         use std::time::{Duration, Instant};
 
-        let (capture_rx, stop_capture) = start();
+        let (capture_rx, _handle) = start();
 
         // Allow startup time
         thread::sleep(Duration::from_millis(100));
@@ -159,7 +173,7 @@ mod tests {
                 Err(channel::RecvTimeoutError::Disconnected) => break,
             }
         }
-        stop_capture();
+        drop(_handle);
 
         println!(
             "Captured {} samples in {:?} (expected ~{})",

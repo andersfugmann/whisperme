@@ -2,7 +2,7 @@ use std::thread;
 
 use crossbeam_channel as channel;
 
-use whisperme::audio_capture;
+use whisperme::audio_capture::{self, AudioCapture};
 use whisperme::audio_processor;
 use whisperme::config::{Config, OutputConfig, UiPosition};
 use whisperme::fanout;
@@ -38,8 +38,8 @@ fn main() {
     let output_config = config.output.clone();
     socket_rx
         .iter()
-        .fold(None::<Box<dyn FnOnce()>>, |stop_fn, event| match event {
-            SocketEvent::Command(SocketMessage::Start) => stop_fn.or_else(|| {
+        .fold(None::<AudioCapture>, |capture, event| match event {
+            SocketEvent::Command(SocketMessage::Start) => capture.or_else(|| {
                 Some(start_recording(
                     &transcription,
                     Some(ui_position),
@@ -48,15 +48,15 @@ fn main() {
                 ))
             }),
             SocketEvent::Command(SocketMessage::Stop) => {
-                stop_fn.map(|f| {
-                    f();
+                capture.map(|c| {
+                    drop(c);
                     println!("Recording stopped, transcribing...");
                 });
                 None
             }
-            SocketEvent::Command(SocketMessage::Toggle) => match stop_fn {
-                Some(f) => {
-                    f();
+            SocketEvent::Command(SocketMessage::Toggle) => match capture {
+                Some(c) => {
+                    drop(c);
                     println!("Recording stopped, transcribing...");
                     None
                 }
@@ -67,29 +67,29 @@ fn main() {
                     &ui_tx,
                 )),
             },
-            SocketEvent::Command(SocketMessage::Status) => stop_fn,
+            SocketEvent::Command(SocketMessage::Status) => capture,
             SocketEvent::StatusRequest(req) => {
-                let state = if stop_fn.is_some() {
+                let state = if capture.is_some() {
                     RecordingState::Recording
                 } else {
                     RecordingState::Idle
                 };
                 let _ = req.response_tx.send(state);
-                stop_fn
+                capture
             }
         });
 }
 
 /// Start audio capture pipeline and wire up all threads.
-/// Returns a closure that stops recording when called.
+/// Returns AudioCapture handle - dropping it stops recording.
 fn start_recording(
     transcription: &Transcription,
     ui_position: Option<UiPosition>,
     output_config: &OutputConfig,
     ui_tx: &UiSender,
-) -> Box<dyn FnOnce()> {
+) -> AudioCapture {
     // Start audio capture
-    let (audio_rx, stop_capture) = audio_capture::start();
+    let (audio_rx, capture) = audio_capture::start();
 
     // Create processed audio channel
     let processed_rx = audio_processor::start(audio_rx);
@@ -114,5 +114,5 @@ fn start_recording(
     // Spawn text output thread
     injection::spawn(text_rx, output_config);
 
-    Box::new(stop_capture)
+    capture
 }
