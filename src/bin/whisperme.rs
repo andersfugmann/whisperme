@@ -111,6 +111,7 @@ struct ConfigApp {
     language: String,
     ui_enabled: bool,
     position: String,
+    continuous_transcription: bool,
     transcription_interval_ms: usize,
     emit_grace_ms: usize,
     language_confidence: f32,
@@ -129,6 +130,7 @@ impl ConfigApp {
             language: cfg.language,
             ui_enabled: cfg.ui_enabled,
             position: cfg.position,
+            continuous_transcription: cfg.continuous_transcription,
             transcription_interval_ms: cfg.transcription_interval_ms,
             emit_grace_ms: cfg.emit_grace_ms,
             language_confidence: cfg.language_confidence,
@@ -228,6 +230,7 @@ impl ConfigApp {
             lang,
             self.ui_enabled,
             &self.position,
+            self.continuous_transcription,
             self.transcription_interval_ms,
             self.emit_grace_ms,
             self.language_confidence,
@@ -353,32 +356,42 @@ impl eframe::App for ConfigApp {
             ui.label(egui::RichText::new("Transcription Settings").strong());
             ui.add_space(4.0);
 
-            egui::Grid::new("transcription_grid")
+            ui.checkbox(&mut self.continuous_transcription, "Continuous transcription (experimental)")
+                .on_hover_text("Transcribe audio periodically while recording. Lower quality than transcribing after recording ends.");
+
+            ui.add_enabled_ui(self.continuous_transcription, |ui| {
+                egui::Grid::new("transcription_grid")
+                    .num_columns(2)
+                    .spacing([8.0, 4.0])
+                    .show(ui, |ui| {
+                        ui.label("Transcription interval (ms):")
+                            .on_hover_text("How often to run transcription on buffered audio.");
+                        let mut interval_val = self.transcription_interval_ms as f32;
+                        ui.add(
+                            egui::DragValue::new(&mut interval_val)
+                                .range(100.0..=5000.0)
+                                .speed(50.0),
+                        );
+                        self.transcription_interval_ms = interval_val as usize;
+                        ui.end_row();
+
+                        ui.label("Emit grace (ms):")
+                            .on_hover_text("Delay before emitting text to avoid incomplete words.");
+                        let mut grace_val = self.emit_grace_ms as f32;
+                        ui.add(
+                            egui::DragValue::new(&mut grace_val)
+                                .range(0.0..=3000.0)
+                                .speed(50.0),
+                        );
+                        self.emit_grace_ms = grace_val as usize;
+                        ui.end_row();
+                    });
+            });
+
+            egui::Grid::new("transcription_grid_common")
                 .num_columns(2)
                 .spacing([8.0, 4.0])
                 .show(ui, |ui| {
-                    ui.label("Transcription interval (ms):")
-                        .on_hover_text("How often to run transcription on buffered audio.");
-                    let mut interval_val = self.transcription_interval_ms as f32;
-                    ui.add(
-                        egui::DragValue::new(&mut interval_val)
-                            .range(500.0..=5000.0)
-                            .speed(50.0),
-                    );
-                    self.transcription_interval_ms = interval_val as usize;
-                    ui.end_row();
-
-                    ui.label("Emit grace (ms):")
-                        .on_hover_text("Delay before emitting text to avoid incomplete words.");
-                    let mut grace_val = self.emit_grace_ms as f32;
-                    ui.add(
-                        egui::DragValue::new(&mut grace_val)
-                            .range(0.0..=3000.0)
-                            .speed(50.0),
-                    );
-                    self.emit_grace_ms = grace_val as usize;
-                    ui.end_row();
-
                     ui.label("Language confidence:")
                         .on_hover_text("Minimum confidence for language detection.");
                     ui.add(
@@ -497,6 +510,7 @@ struct LoadedConfig {
     language: String,
     ui_enabled: bool,
     position: String,
+    continuous_transcription: bool,
     transcription_interval_ms: usize,
     emit_grace_ms: usize,
     language_confidence: f32,
@@ -529,6 +543,10 @@ fn load_config() -> LoadedConfig {
             .and_then(|s| s.get("position"))
             .unwrap_or("top-center")
             .to_string(),
+        continuous_transcription: t
+            .and_then(|s| s.get("continuous_transcription"))
+            .map(|v| v == "true")
+            .unwrap_or(false),
         transcription_interval_ms: t
             .and_then(|s| s.get("transcription_interval_ms"))
             .and_then(|v| v.parse().ok())
@@ -558,6 +576,7 @@ fn save_config(
     language: &str,
     ui_enabled: bool,
     position: &str,
+    continuous_transcription: bool,
     transcription_interval_ms: usize,
     emit_grace_ms: usize,
     language_confidence: f32,
@@ -575,6 +594,10 @@ fn save_config(
         .set("enabled", if ui_enabled { "true" } else { "false" })
         .set("position", position);
     ini.with_section(Some("transcription"))
+        .set(
+            "continuous_transcription",
+            if continuous_transcription { "true" } else { "false" },
+        )
         .set(
             "transcription_interval_ms",
             transcription_interval_ms.to_string(),

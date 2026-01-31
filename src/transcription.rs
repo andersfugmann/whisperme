@@ -1,8 +1,10 @@
 //! Whisper transcription thread.
 
-use std::thread::{self, JoinHandle};
+use crossbeam_channel as channel;
+use std::thread;
+use std::usize;
 
-use crossbeam_channel::{Receiver, Sender};
+use crossbeam_channel::Receiver;
 use whisper_rs::{
     FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, WhisperSegment,
     WhisperState,
@@ -36,13 +38,15 @@ impl Transcription {
         }
     }
 
-    pub fn spawn(&self, audio_rx: Receiver<f32>, text_tx: Sender<String>) -> JoinHandle<()> {
+    pub fn start(&self, audio_rx: Receiver<f32>) -> Receiver<String> {
+        let (text_tx, text_rx) = channel::unbounded::<String>();
         let ctx = Arc::clone(&self.ctx);
         let language = self.language.clone();
         let config = self.config.clone();
         thread::spawn(move || {
             process_audio(&ctx, audio_rx, text_tx, &language, &config);
-        })
+        });
+        text_rx
     }
 }
 
@@ -88,14 +92,14 @@ fn process_audio(
     let mut recording = true;
     let mut first_element = true;
     while recording {
-        let record_for_ms = if audio_buffer.len() < MIN_AUDIO_SAMPLES {
-            let samples_needed = MIN_AUDIO_SAMPLES - audio_buffer.len();
-            let samples_needed_ms = samples_needed * 1000 / SAMPLE_RATE as usize;
-            std::cmp::max(samples_needed_ms, config.transcription_interval_ms)
-        } else {
-            config.transcription_interval_ms
+        let (new_chunk, closed) = {
+            if config.continuous_transcription {
+                collect_audio_samples(&audio_rx, needed_audio_sample(&audio_buffer, config))
+            } else {
+                let chunk: Vec<f32> = audio_rx.iter().collect();
+                (chunk, true)
+            }
         };
-        let (new_chunk, closed) = collect_audio_for(&audio_rx, record_for_ms);
         recording = !closed;
         if !recording {
             println!("*** Recording has stopped");
@@ -196,13 +200,23 @@ fn process_audio(
 /// Collects audio samples for at least the given duration.
 /// First drains any queued samples, then waits for remaining time if needed.
 /// Returns (samples, recording_stopped).
-fn collect_audio_for(audio_rx: &AudioReceiver, time_ms: usize) -> (Vec<f32>, bool) {
-    let samples_needed = no_samples(time_ms);
-    let mut chunk: Vec<f32> = audio_rx.iter().take(samples_needed).collect();
+fn collect_audio_samples(audio_rx: &AudioReceiver, samples: usize) -> (Vec<f32>, bool) {
+    let mut chunk: Vec<f32> = audio_rx.iter().take(samples).collect();
     chunk.extend(audio_rx.try_iter());
-    let closed = chunk.len() < samples_needed;
+    let closed = chunk.len() < samples;
     (chunk, closed)
 }
+
+fn needed_audio_sample(audio_buffer : &Vec<f32>, config: &TranscriptionConfig) -> usize {
+    let interval_samples = no_samples(config.transcription_interval_ms);
+    let min_samples = {
+        if audio_buffer.len() < MIN_AUDIO_SAMPLES {
+            MIN_AUDIO_SAMPLES - audio_buffer.len()
+        } else { 0 }
+    };
+    usize::max(interval_samples, min_samples)
+}
+
 
 /// Detects language from audio buffer.
 /// Returns (language_code, confidence).

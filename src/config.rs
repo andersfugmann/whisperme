@@ -91,6 +91,8 @@ pub struct UiConfig {
 
 #[derive(Debug, Clone)]
 pub struct TranscriptionConfig {
+    /// Enable continuous transcription (experimental, lower quality).
+    pub continuous_transcription: bool,
     /// How long to buffer audio before each transcription attempt (ms).
     pub transcription_interval_ms: usize,
     /// Segments must end this many ms before audio end to be emitted.
@@ -104,6 +106,7 @@ pub struct TranscriptionConfig {
 impl Default for TranscriptionConfig {
     fn default() -> Self {
         Self {
+            continuous_transcription: false,
             transcription_interval_ms: 1000,
             emit_grace_ms: 1200,
             language_confidence: 0.7,
@@ -199,6 +202,11 @@ impl Config {
             .and_then(|s| s.parse().ok())
             .unwrap_or(UiPosition::TopCenter);
 
+        let continuous_transcription = transcription_section
+            .and_then(|s| s.get("continuous_transcription"))
+            .map(|v| v == "true")
+            .unwrap_or(defaults.continuous_transcription);
+
         let transcription_interval_ms = transcription_section
             .and_then(|s| s.get("transcription_interval_ms"))
             .and_then(|s| s.parse().ok())
@@ -240,6 +248,7 @@ impl Config {
                 position: ui_position,
             },
             transcription: TranscriptionConfig {
+                continuous_transcription,
                 transcription_interval_ms,
                 emit_grace_ms,
                 language_confidence,

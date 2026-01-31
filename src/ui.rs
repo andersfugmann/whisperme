@@ -1,5 +1,11 @@
 //! UI module: recording indicator window with frequency visualization.
+//!
+//! Uses a persistent event loop architecture:
+//! - The UI thread and event loop are created once at daemon startup
+//! - Recording indicator windows are created/destroyed dynamically via child viewports
+//! - This avoids winit's "EventLoop can't be recreated" limitation
 
+use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Instant;
 
@@ -16,7 +22,7 @@ use crate::config::UiPosition;
 
 /// UI request messages
 pub enum UiRequest {
-    Show(AudioReceiver),
+    Show(AudioReceiver, UiPosition),
 }
 
 pub type UiSender = channel::Sender<UiRequest>;
@@ -75,19 +81,32 @@ const FREQ_BANDS: [(f32, f32); BAR_COUNT] = [
     (4000.0, 8000.0), // Air/brightness
 ];
 
+/// Spawn the persistent UI thread. Call once at daemon startup.
+/// Returns a sender to request showing the recording indicator.
+pub fn spawn(position: UiPosition) -> UiSender {
+    let (tx, rx) = channel::unbounded::<UiRequest>();
+    thread::spawn(move || {
+        run_ui_loop(rx, position);
+    });
+    tx
+}
+
+/// Legacy API for showing a one-shot recording indicator.
+/// Deprecated: prefer spawn() + send UiRequest::Show.
 pub fn show(audio_rx: AudioReceiver, position: UiPosition) -> JoinHandle<()> {
     thread::spawn(move || {
-        run_ui_window(audio_rx, position);
+        let (tx, rx) = channel::unbounded::<UiRequest>();
+        tx.send(UiRequest::Show(audio_rx, position)).ok();
+        run_ui_loop(rx, position);
     })
 }
 
-fn run_ui_window(audio_rx: AudioReceiver, position: UiPosition) {
+fn run_ui_loop(request_rx: UiReceiver, default_position: UiPosition) {
     use eframe::EventLoopBuilderHook;
 
     // Allow running on non-main thread (required for our thread-based architecture)
     #[cfg(target_os = "linux")]
     let event_loop_builder: EventLoopBuilderHook = Box::new(|builder| {
-        // Use X11 extension - works for both X11 native and XWayland
         use winit::platform::x11::EventLoopBuilderExtX11;
         EventLoopBuilderExtX11::with_any_thread(builder, true);
     });
@@ -95,6 +114,107 @@ fn run_ui_window(audio_rx: AudioReceiver, position: UiPosition) {
     #[cfg(not(target_os = "linux"))]
     let event_loop_builder: Option<EventLoopBuilderHook> = None;
 
+    // Root viewport is invisible - we only show child viewports
+    let viewport = egui::ViewportBuilder::default()
+        .with_inner_size([1.0, 1.0])
+        .with_decorations(false)
+        .with_transparent(true)
+        .with_visible(false);
+
+    let native_options = eframe::NativeOptions {
+        viewport,
+        event_loop_builder: Some(event_loop_builder),
+        ..Default::default()
+    };
+
+    let app = UiController::new(request_rx, default_position);
+
+    if let Err(e) = eframe::run_native(
+        "WhisperMe",
+        native_options,
+        Box::new(move |_cc| Ok(Box::new(app))),
+    ) {
+        eprintln!("UI event loop error: {e}");
+    }
+}
+
+/// Viewport ID for the recording indicator child window
+const INDICATOR_VIEWPORT_ID: &str = "recording_indicator";
+
+/// Main UI controller that runs the persistent event loop.
+/// Creates/destroys recording indicator viewports on demand.
+struct UiController {
+    request_rx: UiReceiver,
+    /// Active recording session state, if any
+    active_session: Option<Arc<Mutex<RecordingSession>>>,
+}
+
+impl UiController {
+    fn new(request_rx: UiReceiver, _default_position: UiPosition) -> Self {
+        Self {
+            request_rx,
+            active_session: None,
+        }
+    }
+
+    fn check_requests(&mut self) {
+        // Check for new show requests (non-blocking)
+        match self.request_rx.try_recv() {
+            Ok(UiRequest::Show(audio_rx, position)) => {
+                self.active_session = Some(Arc::new(Mutex::new(RecordingSession::new(
+                    audio_rx, position,
+                ))));
+            }
+            Err(channel::TryRecvError::Empty) => {}
+            Err(channel::TryRecvError::Disconnected) => {
+                // Request channel closed - daemon shutting down
+                self.active_session = None;
+            }
+        }
+    }
+
+    fn update_session(&mut self) {
+        // Check if active session's audio channel is closed
+        if let Some(session) = &self.active_session {
+            let closed = session.lock().unwrap().channel_closed;
+            if closed {
+                self.active_session = None;
+            }
+        }
+    }
+}
+
+impl eframe::App for UiController {
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        [0.0, 0.0, 0.0, 0.0]
+    }
+
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.check_requests();
+        self.update_session();
+
+        // Request periodic repaint to check for new requests
+        ctx.request_repaint_after(std::time::Duration::from_millis(100));
+
+        // Show recording indicator viewport if we have an active session
+        if let Some(session) = &self.active_session {
+            let session_clone = Arc::clone(session);
+            let position = session.lock().unwrap().position;
+
+            let viewport_builder = build_indicator_viewport(position);
+
+            ctx.show_viewport_deferred(
+                egui::ViewportId::from_hash_of(INDICATOR_VIEWPORT_ID),
+                viewport_builder,
+                move |ctx, _class| {
+                    render_recording_indicator(ctx, &session_clone);
+                },
+            );
+        }
+    }
+}
+
+fn build_indicator_viewport(_position: UiPosition) -> egui::ViewportBuilder {
     let viewport = egui::ViewportBuilder::default()
         .with_inner_size([WINDOW_WIDTH, WINDOW_HEIGHT])
         .with_decorations(false)
@@ -106,29 +226,82 @@ fn run_ui_window(audio_rx: AudioReceiver, position: UiPosition) {
         .with_close_button(false);
 
     // X11-specific: set splash window type to avoid taskbar/focus
-    let viewport = match std::env::var("WAYLAND_DISPLAY") {
+    match std::env::var("WAYLAND_DISPLAY") {
         Err(_) => viewport.with_window_type(egui::X11WindowType::Splash),
         Ok(_) => viewport,
-    };
-
-    let native_options = eframe::NativeOptions {
-        viewport,
-        event_loop_builder: Some(event_loop_builder),
-        ..Default::default()
-    };
-
-    let app = RecordingIndicator::new(audio_rx, position);
-
-    if let Err(e) = eframe::run_native(
-        "WhisperMe",
-        native_options,
-        Box::new(move |_cc| Ok(Box::new(app))),
-    ) {
-        eprintln!("UI window error: {e}");
     }
 }
 
-struct RecordingIndicator {
+fn render_recording_indicator(ctx: &egui::Context, session: &Arc<Mutex<RecordingSession>>) {
+    let mut session = session.lock().unwrap();
+
+    // Position window on first frame
+    if !session.positioned {
+        if let Some(monitor_size) = ctx.input(|i| i.viewport().monitor_size) {
+            let pos = session.calculate_position(monitor_size);
+            ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(pos));
+            session.positioned = true;
+        }
+    }
+
+    // Process incoming audio
+    session.process_audio();
+
+    // Close viewport if channel is closed
+    if session.channel_closed {
+        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        return;
+    }
+
+    // Request repaint at ~30 FPS
+    ctx.request_repaint_after(std::time::Duration::from_millis(33));
+
+    // Calculate pulse opacity for recording dot
+    let elapsed = session.start_time.elapsed().as_secs_f32();
+    let pulse_phase = (elapsed / DOT_PULSE_PERIOD) * 2.0 * std::f32::consts::PI;
+    let pulse_opacity = 0.5 + 0.5 * pulse_phase.sin();
+
+    egui::CentralPanel::default()
+        .frame(egui::Frame::NONE)
+        .show(ctx, |ui| {
+            let painter = ui.painter();
+            let rect = ui.available_rect_before_wrap();
+
+            // Draw rounded background
+            painter.rect_filled(rect, CORNER_RADIUS, bg_color());
+
+            // Draw recording dot (pulsing)
+            let dot_center = egui::pos2(rect.left() + PADDING + DOT_RADIUS, rect.center().y);
+            let base_dot = dot_color();
+            let pulsing_dot = egui::Color32::from_rgba_unmultiplied(
+                base_dot.r(),
+                base_dot.g(),
+                base_dot.b(),
+                (pulse_opacity * 255.0) as u8,
+            );
+            painter.circle_filled(dot_center, DOT_RADIUS, pulsing_dot);
+
+            // Draw frequency bars
+            let bars_start_x = dot_center.x + DOT_RADIUS + PADDING;
+            let bars_center_y = rect.center().y;
+
+            session
+                .bar_heights
+                .iter()
+                .enumerate()
+                .for_each(|(i, &height)| {
+                    let bar_x = bars_start_x + i as f32 * (BAR_WIDTH + BAR_GAP);
+                    let bar_rect = egui::Rect::from_center_size(
+                        egui::pos2(bar_x + BAR_WIDTH / 2.0, bars_center_y),
+                        egui::vec2(BAR_WIDTH, height),
+                    );
+                    painter.rect_filled(bar_rect, BAR_CORNER_RADIUS, bar_color());
+                });
+        });
+}
+
+/// State for an active recording session
+struct RecordingSession {
     audio_rx: AudioReceiver,
     position: UiPosition,
     start_time: Instant,
@@ -138,7 +311,7 @@ struct RecordingIndicator {
     positioned: bool,
 }
 
-impl RecordingIndicator {
+impl RecordingSession {
     fn new(audio_rx: AudioReceiver, position: UiPosition) -> Self {
         Self {
             audio_rx,
@@ -152,7 +325,6 @@ impl RecordingIndicator {
     }
 
     fn process_audio(&mut self) {
-        // Drain available samples from the audio receiver into the ring buffer
         loop {
             match self.audio_rx.try_recv() {
                 Ok(sample) => {
@@ -166,20 +338,15 @@ impl RecordingIndicator {
             }
         }
 
-        // Run FFT if buffer is full
         if self.sample_buffer.is_full() {
             self.run_fft();
         }
     }
 
     fn run_fft(&mut self) {
-        // Convert circular buffer to contiguous array for FFT
         let samples: [f32; FFT_SIZE] = std::array::from_fn(|i| self.sample_buffer[i]);
-
-        // Apply Hanning window
         let windowed = hann_window(&samples);
 
-        // Get frequency spectrum using spectrum-analyzer
         let spectrum = match samples_fft_to_spectrum(
             &windowed,
             SAMPLE_RATE,
@@ -187,15 +354,13 @@ impl RecordingIndicator {
             Some(&divide_by_N_sqrt),
         ) {
             Ok(s) => s,
-            Err(_) => return, // Skip this frame on error
+            Err(_) => return,
         };
 
-        // Calculate magnitude for each frequency band
         let new_heights: Vec<f32> = FREQ_BANDS
             .iter()
             .enumerate()
             .map(|(bar_idx, &(low_hz, high_hz))| {
-                // Sum magnitudes in frequency range
                 let (magnitude_sum, count) =
                     spectrum
                         .data()
@@ -215,26 +380,19 @@ impl RecordingIndicator {
                     0.0
                 };
 
-                // Convert to dB scale
                 let db = if avg_magnitude > 0.0 {
                     20.0 * avg_magnitude.log10()
                 } else {
                     -60.0
                 };
 
-                // Normalize to 0-1 range (assuming -60dB to 0dB range)
                 let normalized = ((db + 60.0) / 60.0).clamp(0.0, 1.0);
-
-                // Map to pixel height
                 let target_height = BAR_MIN_HEIGHT + normalized * (BAR_MAX_HEIGHT - BAR_MIN_HEIGHT);
 
-                // Apply exponential smoothing
-                self.bar_heights[bar_idx] * (1.0 - SMOOTHING_ALPHA)
-                    + target_height * SMOOTHING_ALPHA
+                self.bar_heights[bar_idx] * (1.0 - SMOOTHING_ALPHA) + target_height * SMOOTHING_ALPHA
             })
             .collect();
 
-        // Update bar heights
         self.bar_heights.copy_from_slice(&new_heights);
     }
 
@@ -263,84 +421,12 @@ impl RecordingIndicator {
     }
 }
 
-impl eframe::App for RecordingIndicator {
-    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        [0.0, 0.0, 0.0, 0.0]
-    }
-
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Position window on first frame
-        if !self.positioned {
-            if let Some(monitor_size) = ctx.input(|i| i.viewport().monitor_size) {
-                let pos = self.calculate_position(monitor_size);
-                ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(pos));
-                self.positioned = true;
-            }
-        }
-
-        // Process incoming audio
-        self.process_audio();
-
-        // Close window if channel is closed
-        if self.channel_closed {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-            return;
-        }
-
-        // Request repaint at ~30 FPS
-        ctx.request_repaint_after(std::time::Duration::from_millis(33));
-
-        // Calculate pulse opacity for recording dot
-        let elapsed = self.start_time.elapsed().as_secs_f32();
-        let pulse_phase = (elapsed / DOT_PULSE_PERIOD) * 2.0 * std::f32::consts::PI;
-        let pulse_opacity = 0.5 + 0.5 * pulse_phase.sin(); // 0.5 to 1.0
-
-        egui::CentralPanel::default()
-            .frame(egui::Frame::NONE)
-            .show(ctx, |ui| {
-                let painter = ui.painter();
-                let rect = ui.available_rect_before_wrap();
-
-                // Draw rounded background
-                painter.rect_filled(rect, CORNER_RADIUS, bg_color());
-
-                // Draw recording dot (pulsing)
-                let dot_center = egui::pos2(rect.left() + PADDING + DOT_RADIUS, rect.center().y);
-                let base_dot = dot_color();
-                let pulsing_dot = egui::Color32::from_rgba_unmultiplied(
-                    base_dot.r(),
-                    base_dot.g(),
-                    base_dot.b(),
-                    (pulse_opacity * 255.0) as u8,
-                );
-                painter.circle_filled(dot_center, DOT_RADIUS, pulsing_dot);
-
-                // Draw frequency bars
-                let bars_start_x = dot_center.x + DOT_RADIUS + PADDING;
-                let bars_center_y = rect.center().y;
-
-                self.bar_heights
-                    .iter()
-                    .enumerate()
-                    .for_each(|(i, &height)| {
-                        let bar_x = bars_start_x + i as f32 * (BAR_WIDTH + BAR_GAP);
-                        let bar_rect = egui::Rect::from_center_size(
-                            egui::pos2(bar_x + BAR_WIDTH / 2.0, bars_center_y),
-                            egui::vec2(BAR_WIDTH, height),
-                        );
-                        painter.rect_filled(bar_rect, BAR_CORNER_RADIUS, bar_color());
-                    });
-            });
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_freq_bands_coverage() {
-        // Verify frequency bands don't overlap and are in order
         for window in FREQ_BANDS.windows(2) {
             assert!(
                 window[0].1 <= window[1].0,
@@ -350,7 +436,6 @@ mod tests {
             );
         }
 
-        // Verify last band doesn't exceed Nyquist (SAMPLE_RATE / 2)
         assert!(
             FREQ_BANDS[BAR_COUNT - 1].1 <= (SAMPLE_RATE / 2) as f32,
             "Last band should not exceed Nyquist frequency"

@@ -17,6 +17,8 @@ WhisperMe uses a socket-based control system, allowing any hotkey daemon or desk
    whisperme stop    # On key release
    ```
 
+**Note:** Hold-to-record (key press to start, key release to stop) only works when `continuous_transcription` is disabled in your config. With continuous transcription enabled, text is typed while you're still holding the hotkey, which interferes with keyboard input. Use toggle mode or disable continuous transcription for hold-to-record.
+
 ---
 
 ## sxhkd (Simple X Hot Key Daemon)
