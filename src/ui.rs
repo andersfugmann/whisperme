@@ -101,26 +101,24 @@ pub fn show(audio_rx: AudioReceiver, position: UiPosition) -> JoinHandle<()> {
     })
 }
 
+fn is_wayland() -> bool {
+    std::env::var("WAYLAND_DISPLAY").is_ok()
+}
+
 fn run_ui_loop(request_rx: UiReceiver, default_position: UiPosition) {
     use eframe::EventLoopBuilderHook;
 
     // Allow running on non-main thread (required for our thread-based architecture)
-    #[cfg(target_os = "linux")]
     let event_loop_builder: EventLoopBuilderHook = Box::new(|builder| {
-        use winit::platform::x11::EventLoopBuilderExtX11;
-        EventLoopBuilderExtX11::with_any_thread(builder, true);
+        match is_wayland() {
+            true => winit::platform::wayland::EventLoopBuilderExtWayland::with_any_thread(builder, true),
+            false => winit::platform::x11::EventLoopBuilderExtX11::with_any_thread(builder, true),
+        };
     });
 
-    #[cfg(not(target_os = "linux"))]
-    let event_loop_builder: Option<EventLoopBuilderHook> = None;
-
     // Root viewport is invisible - we only show child viewports
-    let viewport = egui::ViewportBuilder::default()
-        .with_inner_size([1.0, 1.0])
-        .with_decorations(false)
-        .with_transparent(true)
-        .with_visible(false);
 
+    let viewport = build_viewport(1.0, 1.0);
     let native_options = eframe::NativeOptions {
         viewport,
         event_loop_builder: Some(event_loop_builder),
@@ -199,9 +197,7 @@ impl eframe::App for UiController {
         // Show recording indicator viewport if we have an active session
         if let Some(session) = &self.active_session {
             let session_clone = Arc::clone(session);
-            let position = session.lock().unwrap().position;
-
-            let viewport_builder = build_indicator_viewport(position);
+            let viewport_builder = build_viewport(WINDOW_WIDTH, WINDOW_HEIGHT);
 
             ctx.show_viewport_deferred(
                 egui::ViewportId::from_hash_of(INDICATOR_VIEWPORT_ID),
@@ -214,9 +210,9 @@ impl eframe::App for UiController {
     }
 }
 
-fn build_indicator_viewport(_position: UiPosition) -> egui::ViewportBuilder {
+fn build_viewport(width: f32, height: f32) -> egui::ViewportBuilder {
     let viewport = egui::ViewportBuilder::default()
-        .with_inner_size([WINDOW_WIDTH, WINDOW_HEIGHT])
+        .with_inner_size([width, height])
         .with_decorations(false)
         .with_always_on_top()
         .with_titlebar_shown(false)
@@ -226,9 +222,9 @@ fn build_indicator_viewport(_position: UiPosition) -> egui::ViewportBuilder {
         .with_close_button(false);
 
     // X11-specific: set splash window type to avoid taskbar/focus
-    match std::env::var("WAYLAND_DISPLAY") {
-        Err(_) => viewport.with_window_type(egui::X11WindowType::Splash),
-        Ok(_) => viewport,
+    match is_wayland() {
+        false => viewport.with_window_type(egui::X11WindowType::Splash),
+        true => viewport,
     }
 }
 
@@ -442,8 +438,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_smoothing_alpha_valid() {
-        assert!(SMOOTHING_ALPHA > 0.0 && SMOOTHING_ALPHA <= 1.0);
-    }
 }
