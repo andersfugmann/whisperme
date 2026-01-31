@@ -5,6 +5,15 @@
 .PHONY: all
 all: build
 
+FEATURES=full
+PROFILE=dev
+
+ifeq ($(PROFILE),dev)
+TARGET_DIR := target/debug
+else
+TARGET_DIR := $(PROFILE)
+endif
+
 # Directories
 PREFIX ?= $(HOME)/.local
 BINDIR := $(PREFIX)/bin
@@ -21,11 +30,11 @@ deps: ## Install build dependencies
 
 .PHONY: build
 build: submodules ## Build the project (debug)
-	cargo build --features full
+	cargo build --profile $(PROFILE) --features "$(FEATURES)"
 
 .PHONY: release
 release: submodules ## Build the project (release)
-	cargo build --release --features "full"
+	cargo build --profile release --features "full"
 
 .PHONY: build-release
 build-release: build release ## Build both debug and release
@@ -36,19 +45,19 @@ test: ## Run all tests (excluding hardware and slow tests)
 
 .PHONY: test-system
 test-system: ## Run system tests (requires audio, display, X11)
-	cargo test --features "system" -- --nocapture
+	cargo test --profile $(PROFILE) --features "system" -- --nocapture
 
 .PHONY: test-slow
 test-slow: download-model-tiny ## Run slow tests (e.g., full transcription pipeline)
-	cargo test --features "slow_tests" -- --nocapture
+	cargo test --profile $(PROFILE) --features "slow_tests" -- --nocapture
 
 .PHONY: test-all
 test-all: ## Run all tests including system and slow
-	cargo test --features "full,slow_tests,system"
+	cargo test --profile $(PROFILE) --features "full,slow_tests,system"
 
 .PHONY: audio-level
-audio-level: ## Run audio level meter (shows dBFS)
-	cargo run --bin audio-level
+audio-level: build ## Run audio level meter (shows dBFS)
+	$(TARGET_DIR)/audio-level
 
 .PHONY: download-model-tiny
 download-model-tiny: $(MODELS_DIR)/$(MODEL_TINY) ## Download tiny.en model for testing (~75MB)
@@ -60,15 +69,15 @@ $(MODELS_DIR)/$(MODEL_TINY):
 
 .PHONY: run
 run: build ## Run the daemon
-	cargo run --features full --bin whispermed
+	$(TARGET_DIR)/whispermed
 
 .PHONY: transcribe-start
 transcribe-start: build ## Start Transcription
-	cargo run --bin whisperme start
+	$(TARGET_DIR)/whisperme start
 
 .PHONY: transcribe-stop
 transcribe-stop: build ## Stop Transcription
-	cargo run --bin whisperme stop
+	$(TARGET_DIR)/whisperme stop
 
 .PHONY: transcribe-10s
 transcribe-10s: build ## Transcribe for 10 seconds
@@ -78,7 +87,7 @@ transcribe-10s: build ## Transcribe for 10 seconds
 
 .PHONY: config
 config: build ## Open configuration dialog
-	cargo run --bin whisperme config
+	$(TARGET_DIR)/whisperme config
 
 vendor/whisper-rs/sys/whisper.cpp/.git:
 	@echo "Initializing submodules..."

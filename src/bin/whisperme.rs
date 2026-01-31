@@ -1,3 +1,4 @@
+
 use eframe::egui;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -62,7 +63,7 @@ const KEYBOARD_LAYOUTS: &[(&str, &str)] = &[
 const DEFAULT_CHUNK_INTERVAL_MS: usize = 1000;
 const DEFAULT_EMIT_GRACE_MS: usize = 1200;
 const DEFAULT_LANGUAGE_CONFIDENCE: f32 = 0.7;
-const DEFAULT_SILENCE_THRESHOLD_DBFS: f32 = -80.0;
+const DEFAULT_SILENCE_THRESHOLD_DBFS: f32 = -60.0;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();

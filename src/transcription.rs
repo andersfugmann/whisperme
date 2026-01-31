@@ -156,17 +156,17 @@ fn process_audio(
                 let start_ms = segment.start_timestamp() as usize * 10;
                 let end_ms = segment.end_timestamp() as usize * 10;
                 let silence_prob = segment.no_speech_probability();
-                let rms = calculate_rms(&audio_buffer, start_ms, end_ms);
+                let dbfs = calculate_dbfs(&audio_buffer, start_ms, end_ms);
                 let text = segment.to_str_lossy().unwrap();
                 eprintln!(
-                    "*** => Segment [{} - {}] P: {}, RMS: {} : {}",
-                    start_ms, end_ms, silence_prob, rms, text
+                    "*** => Segment [{} - {}] P: {:.2}, dBFS: {:.1} : {}",
+                    start_ms, end_ms, silence_prob, dbfs, text
                 );
 
                 if end_ms <= emit_threshold_ms || !recording {
                     eprintln!("*** => Segment expired");
-                    // Ignore silence
-                    if rms > config.silence_rms_threshold {
+                    // Ignore silence (dBFS is negative, higher = louder)
+                    if dbfs > config.silence_threshold_dbfs {
                         let text = text.to_string();
                         let text = if first_element {
                             first_element = false;
@@ -177,7 +177,7 @@ fn process_audio(
                         eprintln!("*** => Emit segment: {:?}", text);
                         let _ = text_tx.send(text);
                     } else {
-                        println!("*** => Segment dropped as silence");
+                        println!("*** => Segment dropped as silence (dBFS {:.1} < {:.1})", dbfs, config.silence_threshold_dbfs);
                     }
                     end_ms
                 } else {
@@ -238,15 +238,28 @@ fn transcribe(ctx: &WhisperContext, audio: &[f32], language: &str) -> WhisperSta
 
     state
 }
-fn calculate_rms(audio: &[f32], start_ms: usize, end_ms: usize) -> f32 {
+
+/// Calculate dBFS (decibels relative to full scale) for an audio segment.
+/// Returns the RMS level in dBFS where 0 dBFS = full scale (1.0 amplitude).
+/// Typical speech is around -20 to -10 dBFS, silence is below -60 dBFS.
+fn calculate_dbfs(audio: &[f32], start_ms: usize, end_ms: usize) -> f32 {
     let samples = no_samples(end_ms - start_ms);
-    let rs = audio
+    let mean_squares = audio
         .iter()
         .skip(no_samples(start_ms))
         .take(samples)
         .map(|s| s * s)
-        .sum::<f32>();
-    rs / samples as f32
+        .sum::<f32>()
+        / samples as f32;
+    let rms = mean_squares.sqrt();
+    
+    // Convert to dBFS: 20 * log10(rms)
+    // Use floor value for silence to avoid -infinity
+    if rms > 0.0 {
+        20.0 * rms.log10()
+    } else {
+        -120.0
+    }
 }
 
 fn no_samples(ms: usize) -> usize {
