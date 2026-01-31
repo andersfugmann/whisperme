@@ -127,9 +127,9 @@ fn test_process_jfk_audio() {
 #[cfg(feature = "slow_tests")]
 fn test_audio_to_text_pipeline() {
     use crossbeam_channel as channel;
+    use whisperme::audio_processor;
     use whisperme::config::{TranscriptionConfig, WhisperConfig};
     use whisperme::transcription::Transcription;
-    use whisperme::audio_processor;
 
     let (audio_tx, audio_rx) = channel::unbounded::<f32>();
     let (processed_tx, processed_rx) = channel::unbounded::<f32>();
@@ -163,12 +163,10 @@ fn test_audio_to_text_pipeline() {
     println!("Loading Whisper model: {:?}", whisper_config.model_path);
     let transcription = Transcription::new(&whisper_config, TranscriptionConfig::default());
 
-
     for sample in load_wav(audio_path) {
         audio_tx.send(sample).expect("failed to send audio sample");
     }
     drop(audio_tx);
-
 
     // Send transcription request
     // esentially no reason to send a message here. Just spawn

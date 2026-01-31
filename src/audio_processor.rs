@@ -11,7 +11,6 @@ use rubato::{
 };
 use std::thread::{self, JoinHandle};
 
-
 /// Input sample rate (required by RNNoise)
 pub const CAPTURE_RATE: usize = 48000;
 
@@ -42,10 +41,10 @@ pub fn spawn(rx: Receiver<f32>, tx: Sender<f32>) -> JoinHandle<()> {
 
         let mut denoise = DenoiseState::new();
         // let output_buffer :Vec<f32> = vec![0.0; DenoiseState::FRAME_SIZE];
-        let mut output_buffer : Vec<f32> = vec![];
+        let mut output_buffer: Vec<f32> = vec![];
         output_buffer.resize(DenoiseState::FRAME_SIZE, 0.0);
         loop {
-            let scaled_sample : Vec<f32> = rx
+            let scaled_sample: Vec<f32> = rx
                 .iter()
                 .take(DenoiseState::FRAME_SIZE)
                 .map(|s| s * i16::MAX as f32)
@@ -64,19 +63,24 @@ pub fn spawn(rx: Receiver<f32>, tx: Sender<f32>) -> JoinHandle<()> {
                 continue;
             }
 
-            output_buffer.iter_mut().for_each(|x| *x = *x / i16::MAX as f32);
+            output_buffer
+                .iter_mut()
+                .for_each(|x| *x = *x / i16::MAX as f32);
 
             // Resample from 48kHz to 16kHz using high-quality sinc interpolation
             let input_vecs = vec![output_buffer.clone()];
-            let input_adapter = SequentialSliceOfVecs::new(&input_vecs, 1, DenoiseState::FRAME_SIZE).expect("Unable to create slice of samples");
-            let resampled = resampler.process(&input_adapter, 0, None).expect("Unable to resample slice");
-            resampled.take_data().iter()
-                .for_each(|s| { let _ = tx.send(*s); });
+            let input_adapter =
+                SequentialSliceOfVecs::new(&input_vecs, 1, DenoiseState::FRAME_SIZE)
+                    .expect("Unable to create slice of samples");
+            let resampled = resampler
+                .process(&input_adapter, 0, None)
+                .expect("Unable to resample slice");
+            resampled.take_data().iter().for_each(|s| {
+                let _ = tx.send(*s);
+            });
         }
     })
 }
-
-
 
 /// Noise cancellation and resampling processor.
 /// Takes 48kHz audio, applies RNNoise denoising, resamples to 16kHz.
@@ -176,8 +180,8 @@ impl Default for AudioProcessor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crossbeam_channel::TryRecvError::Empty;
     use crossbeam_channel::RecvError;
+    use crossbeam_channel::TryRecvError::Empty;
 
     #[test]
     fn test_process_empty() {
@@ -197,7 +201,9 @@ mod tests {
         spawn(audio_rx, processed_tx);
 
         let input = vec![0.0; DenoiseState::FRAME_SIZE - 1];
-        input.iter().for_each(|x| { let _ = audio_tx.send(*x); });
+        input.iter().for_each(|x| {
+            let _ = audio_tx.send(*x);
+        });
         drop(audio_tx);
         assert!(processed_rx.is_empty());
     }
@@ -210,8 +216,13 @@ mod tests {
         spawn(audio_rx, processed_tx);
 
         let input = vec![0.0; DenoiseState::FRAME_SIZE * 7];
-        input.iter().for_each(|x| { let _ = audio_tx.send(*x); });
+        input.iter().for_each(|x| {
+            let _ = audio_tx.send(*x);
+        });
         drop(audio_tx);
-        assert_eq!(processed_rx.iter().count() + 1, DenoiseState::FRAME_SIZE * 2);
+        assert_eq!(
+            processed_rx.iter().count() + 1,
+            DenoiseState::FRAME_SIZE * 2
+        );
     }
 }

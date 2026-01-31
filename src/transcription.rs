@@ -19,8 +19,8 @@ const MIN_AUDIO_SAMPLES: usize = (1.2 * SAMPLE_RATE as f32) as usize;
 
 /// Transcription thread that loads the Whisper model and processes audio.
 pub struct Transcription {
-    ctx : Arc<WhisperContext>,
-    language : String,
+    ctx: Arc<WhisperContext>,
+    language: String,
     config: TranscriptionConfig,
 }
 impl Transcription {
@@ -29,7 +29,11 @@ impl Transcription {
         let language = whisper_config.language.clone();
         // Load the Whisper model on the main thread
         let ctx = Arc::new(load_model(whisper_config));
-        Self { ctx, language, config }
+        Self {
+            ctx,
+            language,
+            config,
+        }
     }
 
     pub fn spawn(&self, audio_rx: Receiver<f32>, text_tx: Sender<String>) -> JoinHandle<()> {
@@ -37,12 +41,7 @@ impl Transcription {
         let language = self.language.clone();
         let config = self.config.clone();
         thread::spawn(move || {
-            process_audio(
-                &ctx,
-                audio_rx,
-                text_tx,
-                &language,
-                &config);
+            process_audio(&ctx, audio_rx, text_tx, &language, &config);
         })
     }
 }
@@ -129,13 +128,11 @@ fn process_audio(
         let lang = language.as_ref().unwrap();
 
         // Text segments can be into the future!
-        let emit_threshold_ms : usize =
-            if current_audio_duration_ms < config.emit_grace_ms {
-                0
-            } else {
-                current_audio_duration_ms - config.emit_grace_ms
-            };
-
+        let emit_threshold_ms: usize = if current_audio_duration_ms < config.emit_grace_ms {
+            0
+        } else {
+            current_audio_duration_ms - config.emit_grace_ms
+        };
 
         eprintln!(
             "*** => Grace ms = {}. Total_time: {}",
@@ -177,7 +174,10 @@ fn process_audio(
                         eprintln!("*** => Emit segment: {:?}", text);
                         let _ = text_tx.send(text);
                     } else {
-                        println!("*** => Segment dropped as silence (dBFS {:.1} < {:.1})", dbfs, config.silence_threshold_dbfs);
+                        println!(
+                            "*** => Segment dropped as silence (dBFS {:.1} < {:.1})",
+                            dbfs, config.silence_threshold_dbfs
+                        );
                     }
                     end_ms
                 } else {
@@ -252,7 +252,7 @@ fn calculate_dbfs(audio: &[f32], start_ms: usize, end_ms: usize) -> f32 {
         .sum::<f32>()
         / samples as f32;
     let rms = mean_squares.sqrt();
-    
+
     // Convert to dBFS: 20 * log10(rms)
     // Use floor value for silence to avoid -infinity
     if rms > 0.0 {

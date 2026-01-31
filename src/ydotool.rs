@@ -55,8 +55,8 @@ impl VirtualKeyboard {
     /// Create a new virtual keyboard connecting to ydotoold.
     pub fn new(keyboard_layout: &str) -> Result<Self, String> {
         let socket_path = Self::find_socket_path();
-        let socket = UnixDatagram::unbound()
-            .map_err(|e| format!("failed to create socket: {}", e))?;
+        let socket =
+            UnixDatagram::unbound().map_err(|e| format!("failed to create socket: {}", e))?;
         socket
             .connect(&socket_path)
             .map_err(|e| format!("failed to connect to ydotoold at '{}': {}", socket_path, e))?;
@@ -146,10 +146,10 @@ fn query_env() -> Option<String> {
 
 /// Detect keyboard layout from system.
 fn detect_keyboard_layout() -> String {
-    [query_env, query_localectl, query_setxkbmap].iter()
+    [query_env, query_localectl, query_setxkbmap]
+        .iter()
         .find_map(|f| f().filter(|s| !s.is_empty()))
         .unwrap_or("us".to_string())
-
 }
 
 /// Query localectl for keyboard layout.

@@ -1,4 +1,3 @@
-
 use eframe::egui;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -308,11 +307,7 @@ impl eframe::App for ConfigApp {
                         .selected_text(display)
                         .show_ui(ui, |ui| {
                             for (code, name) in LANGUAGES {
-                                ui.selectable_value(
-                                    &mut self.language,
-                                    code.to_string(),
-                                    *name,
-                                );
+                                ui.selectable_value(&mut self.language, code.to_string(), *name);
                             }
                         });
                 });
@@ -344,11 +339,7 @@ impl eframe::App for ConfigApp {
                         .selected_text(display)
                         .show_ui(ui, |ui| {
                             for (code, name) in POSITIONS {
-                                ui.selectable_value(
-                                    &mut self.position,
-                                    code.to_string(),
-                                    *name,
-                                );
+                                ui.selectable_value(&mut self.position, code.to_string(), *name);
                             }
                         });
                 });
@@ -366,9 +357,8 @@ impl eframe::App for ConfigApp {
                 .num_columns(2)
                 .spacing([8.0, 4.0])
                 .show(ui, |ui| {
-                    ui.label("Transcription interval (ms):").on_hover_text(
-                        "How often to run transcription on buffered audio.",
-                    );
+                    ui.label("Transcription interval (ms):")
+                        .on_hover_text("How often to run transcription on buffered audio.");
                     let mut interval_val = self.transcription_interval_ms as f32;
                     ui.add(
                         egui::DragValue::new(&mut interval_val)
@@ -378,9 +368,8 @@ impl eframe::App for ConfigApp {
                     self.transcription_interval_ms = interval_val as usize;
                     ui.end_row();
 
-                    ui.label("Emit grace (ms):").on_hover_text(
-                        "Delay before emitting text to avoid incomplete words.",
-                    );
+                    ui.label("Emit grace (ms):")
+                        .on_hover_text("Delay before emitting text to avoid incomplete words.");
                     let mut grace_val = self.emit_grace_ms as f32;
                     ui.add(
                         egui::DragValue::new(&mut grace_val)
@@ -390,9 +379,8 @@ impl eframe::App for ConfigApp {
                     self.emit_grace_ms = grace_val as usize;
                     ui.end_row();
 
-                    ui.label("Language confidence:").on_hover_text(
-                        "Minimum confidence for language detection.",
-                    );
+                    ui.label("Language confidence:")
+                        .on_hover_text("Minimum confidence for language detection.");
                     ui.add(
                         egui::DragValue::new(&mut self.language_confidence)
                             .range(0.0..=1.0)
@@ -432,11 +420,7 @@ impl eframe::App for ConfigApp {
                     .selected_text(display)
                     .show_ui(ui, |ui| {
                         for (code, name) in OUTPUT_METHODS {
-                            ui.selectable_value(
-                                &mut self.output_method,
-                                code.to_string(),
-                                *name,
-                            );
+                            ui.selectable_value(&mut self.output_method, code.to_string(), *name);
                         }
                     });
             });
@@ -466,7 +450,11 @@ impl eframe::App for ConfigApp {
             if !self.is_ydotool() {
                 ui.horizontal(|ui| {
                     ui.add_space(52.0);
-                    ui.label(egui::RichText::new("Keyboard layout only applies to ydotool").italics().weak());
+                    ui.label(
+                        egui::RichText::new("Keyboard layout only applies to ydotool")
+                            .italics()
+                            .weak(),
+                    );
                 });
             }
 
@@ -557,10 +545,7 @@ fn load_config() -> LoadedConfig {
             .and_then(|s| s.get("silence_threshold_dbfs"))
             .and_then(|v| v.parse().ok())
             .unwrap_or(DEFAULT_SILENCE_THRESHOLD_DBFS),
-        output_method: o
-            .and_then(|s| s.get("method"))
-            .unwrap_or("xdo")
-            .to_string(),
+        output_method: o.and_then(|s| s.get("method")).unwrap_or("xdo").to_string(),
         keyboard_layout: o
             .and_then(|s| s.get("keyboard_layout"))
             .unwrap_or("auto")

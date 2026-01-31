@@ -20,9 +20,7 @@ fn main() {
     let _capture = AudioCapture::new(audio_tx);
 
     loop {
-        let samples : Vec<f32> = processed_rx.iter()
-            .take(SAMPLES_PER_WINDOW)
-            .collect();
+        let samples: Vec<f32> = processed_rx.iter().take(SAMPLES_PER_WINDOW).collect();
         let rms = calculate_rms(&samples);
         let dbfs = rms_to_dbfs(rms);
         print_level(dbfs);

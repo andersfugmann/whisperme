@@ -11,9 +11,7 @@ use crate::config::{OutputConfig, OutputMethod};
 #[cfg(feature = "clipboard")]
 static CLIPBOARD: std::sync::LazyLock<std::sync::Mutex<arboard::Clipboard>> =
     std::sync::LazyLock::new(|| {
-        std::sync::Mutex::new(
-            arboard::Clipboard::new().expect("failed to initialize clipboard"),
-        )
+        std::sync::Mutex::new(arboard::Clipboard::new().expect("failed to initialize clipboard"))
     });
 
 /// Spawn text output thread.
@@ -50,7 +48,9 @@ fn create_emitter(method: OutputMethod, keyboard_layout: &str) -> Emitter {
         OutputMethod::Clipboard => create_clipboard_emitter(),
         #[cfg(not(feature = "clipboard"))]
         OutputMethod::Clipboard => {
-            eprintln!("warning: clipboard output requested but not compiled in, falling back to print");
+            eprintln!(
+                "warning: clipboard output requested but not compiled in, falling back to print"
+            );
             create_print_emitter()
         }
 
@@ -59,7 +59,9 @@ fn create_emitter(method: OutputMethod, keyboard_layout: &str) -> Emitter {
         #[cfg(not(feature = "ydotool"))]
         OutputMethod::Ydotool => {
             let _ = keyboard_layout;
-            eprintln!("warning: ydotool output requested but not compiled in, falling back to print");
+            eprintln!(
+                "warning: ydotool output requested but not compiled in, falling back to print"
+            );
             create_print_emitter()
         }
 
@@ -69,7 +71,7 @@ fn create_emitter(method: OutputMethod, keyboard_layout: &str) -> Emitter {
 
 #[cfg(feature = "xdo")]
 fn create_xdo_emitter() -> Emitter {
-    use libxdo::{XDo, OpError};
+    use libxdo::{OpError, XDo};
     let xdo = XDo::new(None).unwrap_or_else(|e| {
         eprintln!("error: failed to initialize xdo: {}", e);
         std::process::exit(1);
@@ -137,8 +139,8 @@ mod tests {
 
     #[allow(dead_code)]
     fn test_zenity(name: &str, tx: crossbeam_channel::Sender<String>) {
-        use std::time::Duration;
         use std::thread;
+        use std::time::Duration;
 
         let _guard = ZENITY_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let zenity = std::process::Command::new("zenity")
@@ -156,14 +158,30 @@ mod tests {
         // Wait for zenity to start
         thread::sleep(Duration::from_millis(500));
 
-        let segments = [name, " : ", "Hello, world!", " ", "What's this? It's a test: 1, 2, 3."];
-        segments.iter().for_each(|s| tx.send(s.to_string()).unwrap());
+        let segments = [
+            name,
+            " : ",
+            "Hello, world!",
+            " ",
+            "What's this? It's a test: 1, 2, 3.",
+        ];
+        segments
+            .iter()
+            .for_each(|s| tx.send(s.to_string()).unwrap());
         drop(tx);
 
-        let output = zenity.wait_with_output().expect(&format!("{}: failed to read zenity output", name));
-        let captured = String::from_utf8_lossy(&output.stdout).trim_end_matches('\n').to_string();
+        let output = zenity
+            .wait_with_output()
+            .expect(&format!("{}: failed to read zenity output", name));
+        let captured = String::from_utf8_lossy(&output.stdout)
+            .trim_end_matches('\n')
+            .to_string();
         let expected: String = segments.iter().copied().collect();
-        assert_eq!(captured, expected, "{}: Captured input does not match", name);
+        assert_eq!(
+            captured, expected,
+            "{}: Captured input does not match",
+            name
+        );
     }
 
     #[test]
@@ -240,7 +258,8 @@ mod tests {
         };
         let injection_handle = injection::spawn(rx, &config);
 
-        let keyboard = VirtualKeyboard::new("auto").expect("Clipboard: failed to create VirtualKeyboard");
+        let keyboard =
+            VirtualKeyboard::new("auto").expect("Clipboard: failed to create VirtualKeyboard");
         let thread = thread::spawn(move || {
             let _ = injection_handle.join();
             println!("Send paste to keyboard");

@@ -16,9 +16,9 @@ use std::time::{Duration, Instant};
 use crossbeam_channel as channel;
 
 use whisperme::audio::AudioCapture;
+use whisperme::audio_processor;
 use whisperme::audio_processor::{CAPTURE_RATE, SAMPLE_RATE};
 use whisperme::config::UiPosition;
-use whisperme::audio_processor;
 
 /// Test that audio capture works and produces samples.
 #[test]
