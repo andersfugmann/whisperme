@@ -92,15 +92,12 @@ fn start_recording(
     let (audio_rx, stop_capture) = audio_capture::start();
 
     // Create processed audio channel
-    let (processed_tx, processed_rx) = channel::unbounded::<f32>(); // 16kHz processed
-    audio_processor::spawn(audio_rx, processed_tx);
+    let processed_rx = audio_processor::start(audio_rx);
 
     // Spawn fanout thread: distribute processed audio to transcription and UI
     let transcription_rx = match ui_position {
         Some(ui_position) => {
-            let (transcription_tx, transcription_rx) = channel::unbounded::<f32>();
-            let (ui_audio_tx, ui_audio_rx) = channel::unbounded::<f32>();
-            fanout::spawn(processed_rx, vec![transcription_tx, ui_audio_tx]);
+            let (transcription_rx, ui_audio_rx) = fanout::duplicate(processed_rx);
             // Send show request to persistent UI thread
             ui_tx
                 .send(ui::UiRequest::Show(ui_audio_rx, ui_position))

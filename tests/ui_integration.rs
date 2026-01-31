@@ -60,9 +60,6 @@ fn test_audio_flows_to_multiple_receivers() {
 
     // Create pipeline: capture → processor → fanout → receivers
     let (processed_tx, processed_rx) = channel::unbounded::<f32>();
-    let (transc_tx, transc_rx) = channel::unbounded::<f32>();
-    let (ui_tx, ui_rx) = channel::unbounded::<f32>();
-
     let (raw_rx, stop_capture) = audio_capture::start();
 
     // Spawn processor thread
@@ -76,7 +73,7 @@ fn test_audio_flows_to_multiple_receivers() {
     });
 
     // Spawn fanout
-    fanout::spawn(processed_rx, vec![transc_tx, ui_tx]);
+    let (transc_rx, ui_rx) = fanout::duplicate(processed_rx);
 
     // Allow capture to initialize
     thread::sleep(Duration::from_millis(500));
@@ -139,9 +136,7 @@ fn test_ui_window_with_audio() {
 
     // Spawn UI thread
     let (capture_rx, stop_capture) = audio_capture::start();
-    let (ui_audio_tx, ui_audio_rx) = channel::unbounded();
-    audio_processor::spawn(capture_rx, ui_audio_tx);
-
+    let ui_audio_rx = audio_processor::start(capture_rx);
     ui::show(ui_audio_rx, UiPosition::BottomRight);
 
     // Let it run for 5 seconds for visual inspection

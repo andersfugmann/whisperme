@@ -132,9 +132,7 @@ fn test_audio_to_text_pipeline() {
     use whisperme::transcription::Transcription;
 
     let (audio_tx, audio_rx) = channel::unbounded::<f32>();
-    let (processed_tx, processed_rx) = channel::unbounded::<f32>();
-
-    audio_processor::spawn(audio_rx, processed_tx);
+    let processed_rx = audio_processor::start(audio_rx);
 
     // Load test audio
     let audio_path = Path::new("tests/fixtures/jfk_48k.wav");

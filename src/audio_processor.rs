@@ -3,13 +3,14 @@
 //! Pipeline: 48kHz raw → RNNoise → Rubato → 16kHz clean
 
 use audioadapter_buffers::direct::SequentialSliceOfVecs;
-use crossbeam_channel::{Receiver, Sender};
+use crossbeam_channel as channel;
+use channel::Receiver;
 use nnnoiseless::DenoiseState;
 use rubato::{
     Async, FixedAsync, Resampler, SincInterpolationParameters, SincInterpolationType,
     WindowFunction,
 };
-use std::thread::{self, JoinHandle};
+use std::thread;
 
 /// Input sample rate (required by RNNoise)
 pub const CAPTURE_RATE: usize = 48000;
@@ -18,7 +19,8 @@ pub const CAPTURE_RATE: usize = 48000;
 pub const SAMPLE_RATE: u32 = 16000;
 
 #[allow(dead_code)]
-pub fn spawn(rx: Receiver<f32>, tx: Sender<f32>) -> JoinHandle<()> {
+pub fn start(audio_rx: Receiver<f32>) -> Receiver<f32> {
+    let (processed_tx, processed_rx) = channel::unbounded::<f32>(); // 16kHz processed
     thread::spawn(move || {
         let mut first_sample = true;
         let params = SincInterpolationParameters {
@@ -44,7 +46,7 @@ pub fn spawn(rx: Receiver<f32>, tx: Sender<f32>) -> JoinHandle<()> {
         let mut output_buffer: Vec<f32> = vec![];
         output_buffer.resize(DenoiseState::FRAME_SIZE, 0.0);
         loop {
-            let scaled_sample: Vec<f32> = rx
+            let scaled_sample: Vec<f32> = audio_rx
                 .iter()
                 .take(DenoiseState::FRAME_SIZE)
                 .map(|s| s * i16::MAX as f32)
@@ -76,10 +78,11 @@ pub fn spawn(rx: Receiver<f32>, tx: Sender<f32>) -> JoinHandle<()> {
                 .process(&input_adapter, 0, None)
                 .expect("Unable to resample slice");
             resampled.take_data().iter().for_each(|s| {
-                let _ = tx.send(*s);
+                let _ = processed_tx.send(*s);
             });
         }
-    })
+    });
+    processed_rx
 }
 
 /// Noise cancellation and resampling processor.
@@ -186,8 +189,7 @@ mod tests {
     #[test]
     fn test_process_empty() {
         let (audio_tx, audio_rx) = crossbeam_channel::unbounded::<f32>();
-        let (processed_tx, processed_rx) = crossbeam_channel::unbounded::<f32>();
-        spawn(audio_rx, processed_tx);
+        let processed_rx = start(audio_rx);
         assert_eq!(processed_rx.try_recv(), Err(Empty));
         drop(audio_tx);
         assert_eq!(processed_rx.recv(), Err(RecvError));
@@ -195,10 +197,9 @@ mod tests {
 
     #[test]
     fn test_process_partial_frame() {
-        // Less than one frame - should accumulate but not output
+        // Less than onui_audio_rxe frame - should accumulate but not output
         let (audio_tx, audio_rx) = crossbeam_channel::unbounded::<f32>();
-        let (processed_tx, processed_rx) = crossbeam_channel::unbounded::<f32>();
-        spawn(audio_rx, processed_tx);
+        let processed_rx = start(audio_rx);
 
         let input = vec![0.0; DenoiseState::FRAME_SIZE - 1];
         input.iter().for_each(|x| {
@@ -212,8 +213,7 @@ mod tests {
     fn test_process_full_frame() {
         // Two full frames - first is discarded (warmup), second produces output
         let (audio_tx, audio_rx) = crossbeam_channel::unbounded::<f32>();
-        let (processed_tx, processed_rx) = crossbeam_channel::unbounded::<f32>();
-        spawn(audio_rx, processed_tx);
+        let processed_rx = start(audio_rx);
 
         let input = vec![0.0; DenoiseState::FRAME_SIZE * 7];
         input.iter().for_each(|x| {

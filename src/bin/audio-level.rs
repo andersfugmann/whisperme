@@ -1,6 +1,5 @@
 //! Test binary that records audio and prints dBFS levels per 200ms sample.
 
-use crossbeam_channel as channel;
 use whisperme::audio_capture;
 use whisperme::audio_processor;
 
@@ -13,10 +12,8 @@ fn main() {
     println!("dBFS levels (200ms windows):");
     println!();
 
-    let (processed_tx, processed_rx) = channel::unbounded::<f32>();
-
     let (audio_rx, _stop_capture) = audio_capture::start();
-    audio_processor::spawn(audio_rx, processed_tx);
+    let processed_rx = audio_processor::start(audio_rx);
 
     loop {
         let samples: Vec<f32> = processed_rx.iter().take(SAMPLES_PER_WINDOW).collect();
