@@ -4,7 +4,7 @@
 //! Processing (noise cancellation, resampling) is handled separately by AudioProcessor.
 
 use std::mem;
-use std::thread::{self, JoinHandle};
+use std::thread;
 
 use crossbeam_channel as channel;
 use pipewire as pw;
@@ -30,47 +30,23 @@ enum ControlMessage {
 
 /// Handle for audio capture.
 /// Captures raw 48kHz audio and sends samples to the provided channel.
-pub struct AudioCapture {
-    stop_sender: pw::channel::Sender<ControlMessage>,
-    pipewire_handle: Option<JoinHandle<()>>,
-}
 
-impl AudioCapture {
-    /// Creates audio capture that sends raw 48kHz samples.
-    pub fn new(raw_tx: AudioSender) -> Self {
-        pw::init();
+pub fn start() -> (channel::Receiver<f32>, impl FnOnce()) {
+    let (audio_tx, audio_rx) = channel::unbounded::<f32>();
+    pw::init();
 
-        let (stop_sender, stop_receiver) = pw::channel::channel::<ControlMessage>();
+    let (stop_sender, stop_receiver) = pw::channel::channel::<ControlMessage>();
 
-        let pipewire_handle = thread::spawn(move || {
-            run_pipewire_capture(stop_receiver, raw_tx);
-        });
-
-        Self {
-            stop_sender,
-            pipewire_handle: Some(pipewire_handle),
-        }
-    }
-
-    /// Explicitly stop audio capture and wait for thread to exit.
-    /// Idempotent - safe to call multiple times.
-    pub fn stop(&mut self) {
-        if self.pipewire_handle.is_some() {
-            self.stop_sender
-                .send(ControlMessage::Stop)
-                .expect("pipewire thread died");
-        }
-
-        if let Some(handle) = self.pipewire_handle.take() {
-            handle.join().expect("pipewire thread panicked");
-        }
-    }
-}
-
-impl Drop for AudioCapture {
-    fn drop(&mut self) {
-        self.stop();
-    }
+    let thread = thread::spawn(move || {
+        run_pipewire_capture(stop_receiver, audio_tx);
+    });
+    let stop_fn = move || {
+        stop_sender
+            .send(ControlMessage::Stop)
+            .expect("pipewire thread died");
+        thread.join().expect("pipewire thread panicked");
+    };
+    (audio_rx, stop_fn)
 }
 
 /// PipeWire capture thread - runs MainLoop, sends individual samples to raw_tx
@@ -166,8 +142,7 @@ mod tests {
         use crate::audio_processor::CAPTURE_RATE;
         use std::time::{Duration, Instant};
 
-        let (tx, rx) = channel::unbounded();
-        let _capture = AudioCapture::new(tx);
+        let (capture_rx, stop_capture) = AudioCapture::start();
 
         // Allow startup time
         thread::sleep(Duration::from_millis(100));
@@ -184,6 +159,7 @@ mod tests {
                 Err(channel::RecvTimeoutError::Disconnected) => break,
             }
         }
+        stop_capture();
 
         println!(
             "Captured {} samples in {:?} (expected ~{})",
