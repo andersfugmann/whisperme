@@ -1,8 +1,6 @@
 use ini::Ini;
 use std::path::PathBuf;
 
-use crate::UnwrapOrExit;
-
 #[derive(Debug, Clone)]
 pub struct WhisperConfig {
     pub model: String,
@@ -131,10 +129,7 @@ impl Config {
             return Self::default();
         }
 
-        let ini = Ini::load_from_file(&config_path).unwrap_or_exit(&format!(
-            "failed to load config from {} - check file syntax",
-            config_path.display()
-        ));
+        let ini = Ini::load_from_file(&config_path).expect("failed to load config - check file syntax");
 
         Self::from_ini(&ini)
     }
@@ -144,7 +139,7 @@ impl Config {
             .map(PathBuf::from)
             .unwrap_or_else(|_| {
                 let home =
-                    std::env::var("HOME").unwrap_or_exit("HOME environment variable not set");
+                    std::env::var("HOME").expect("HOME environment variable not set");
                 PathBuf::from(home).join(".config")
             });
         config_dir.join("whisperme").join("config.ini")
@@ -155,7 +150,7 @@ impl Config {
             .map(PathBuf::from)
             .unwrap_or_else(|_| {
                 let home =
-                    std::env::var("HOME").unwrap_or_exit("HOME environment variable not set");
+                    std::env::var("HOME").expect("HOME environment variable not set");
                 PathBuf::from(home).join(".local/share")
             });
         data_dir.join("whisperme").join("models")

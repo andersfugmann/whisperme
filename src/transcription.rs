@@ -10,7 +10,6 @@ use whisper_rs::{
     WhisperState,
 };
 
-use crate::UnwrapOrExit;
 use crate::audio_capture::{AudioReceiver, TextSender};
 use crate::audio_processor::SAMPLE_RATE;
 use crate::config::{TranscriptionConfig, WhisperConfig};
@@ -63,12 +62,9 @@ fn load_model(config: &WhisperConfig) -> WhisperContext {
     println!("Loading Whisper model from: {}", model_path.display());
     let model_path_str = model_path
         .to_str()
-        .unwrap_or_exit("model path contains invalid UTF-8 characters");
+        .expect("model path contains invalid UTF-8 characters");
     let ctx = WhisperContext::new_with_params(model_path_str, WhisperContextParameters::default())
-        .unwrap_or_exit(&format!(
-            "failed to load Whisper model from {} - file may be corrupted, try re-downloading",
-            model_path.display()
-        ));
+        .expect("failed to load Whisper model - file may be corrupted, try re-downloading");
     println!("Whisper model loaded successfully");
 
     ctx

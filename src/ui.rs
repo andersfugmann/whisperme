@@ -12,13 +12,11 @@ use std::time::Instant;
 use circular_buffer::CircularBuffer;
 use crossbeam_channel as channel;
 use eframe::egui;
-use spectrum_analyzer::scaling::divide_by_N_sqrt;
-use spectrum_analyzer::windows::hann_window;
-use spectrum_analyzer::{FrequencyLimit, samples_fft_to_spectrum};
 
 use crate::audio_capture::AudioReceiver;
 use crate::audio_processor::SAMPLE_RATE;
 use crate::config::UiPosition;
+use crate::spectrum::{FFT_SIZE, band_db_levels};
 
 /// UI request messages
 pub enum UiRequest {
@@ -27,9 +25,6 @@ pub enum UiRequest {
 
 pub type UiSender = channel::Sender<UiRequest>;
 pub type UiReceiver = channel::Receiver<UiRequest>;
-
-/// FFT size for frequency analysis (must be power of 2)
-const FFT_SIZE: usize = 256;
 
 /// Window dimensions
 const WINDOW_WIDTH: f32 = 50.0;
@@ -71,15 +66,6 @@ fn bar_color() -> egui::Color32 {
     // Silver white
     egui::Color32::from_rgb(0xF0, 0xF0, 0xF4)
 }
-
-/// Frequency bands for each bar (Hz ranges)
-const FREQ_BANDS: [(f32, f32); BAR_COUNT] = [
-    (62.0, 250.0),    // Low bass
-    (250.0, 500.0),   // Voice body
-    (500.0, 2000.0),  // Voice clarity
-    (2000.0, 4000.0), // Presence
-    (4000.0, 8000.0), // Air/brightness
-];
 
 /// Spawn the persistent UI thread. Call once at daemon startup.
 /// Returns a sender to request showing the recording indicator.
@@ -341,55 +327,16 @@ impl RecordingSession {
 
     fn run_fft(&mut self) {
         let samples: [f32; FFT_SIZE] = std::array::from_fn(|i| self.sample_buffer[i]);
-        let windowed = hann_window(&samples);
-
-        let spectrum = match samples_fft_to_spectrum(
-            &windowed,
-            SAMPLE_RATE,
-            FrequencyLimit::Range(62.0.into(), 8000.0.into()),
-            Some(&divide_by_N_sqrt),
-        ) {
-            Ok(s) => s,
-            Err(_) => return,
+        let db_levels = match band_db_levels(&samples, SAMPLE_RATE) {
+            Some(levels) => levels,
+            None => return,
         };
 
-        let new_heights: Vec<f32> = FREQ_BANDS
-            .iter()
-            .enumerate()
-            .map(|(bar_idx, &(low_hz, high_hz))| {
-                let (magnitude_sum, count) =
-                    spectrum
-                        .data()
-                        .iter()
-                        .fold((0.0f32, 0u32), |(sum, cnt), (freq, val)| {
-                            let freq_hz = freq.val();
-                            if freq_hz >= low_hz && freq_hz < high_hz {
-                                (sum + val.val(), cnt + 1)
-                            } else {
-                                (sum, cnt)
-                            }
-                        });
-
-                let avg_magnitude = if count > 0 {
-                    magnitude_sum / count as f32
-                } else {
-                    0.0
-                };
-
-                let db = if avg_magnitude > 0.0 {
-                    20.0 * avg_magnitude.log10()
-                } else {
-                    -60.0
-                };
-
-                let normalized = ((db + 60.0) / 60.0).clamp(0.0, 1.0);
-                let target_height = BAR_MIN_HEIGHT + normalized * (BAR_MAX_HEIGHT - BAR_MIN_HEIGHT);
-
-                self.bar_heights[bar_idx] * (1.0 - SMOOTHING_ALPHA) + target_height * SMOOTHING_ALPHA
-            })
-            .collect();
-
-        self.bar_heights.copy_from_slice(&new_heights);
+        db_levels.iter().enumerate().for_each(|(i, &db)| {
+            let normalized = ((db + 80.0) / 100.0).clamp(0.0, 1.0).powi(2);
+            let target = BAR_MIN_HEIGHT + normalized * (BAR_MAX_HEIGHT - BAR_MIN_HEIGHT);
+            self.bar_heights[i] = self.bar_heights[i] * (1.0 - SMOOTHING_ALPHA) + target * SMOOTHING_ALPHA;
+        });
     }
 
     fn calculate_position(&self, monitor_size: egui::Vec2) -> egui::Pos2 {
@@ -415,27 +362,4 @@ impl RecordingSession {
             ),
         }
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_freq_bands_coverage() {
-        for window in FREQ_BANDS.windows(2) {
-            assert!(
-                window[0].1 <= window[1].0,
-                "Bands should not overlap: {:?} and {:?}",
-                window[0],
-                window[1]
-            );
-        }
-
-        assert!(
-            FREQ_BANDS[BAR_COUNT - 1].1 <= (SAMPLE_RATE / 2) as f32,
-            "Last band should not exceed Nyquist frequency"
-        );
-    }
-
 }

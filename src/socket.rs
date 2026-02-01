@@ -7,8 +7,6 @@ use std::thread;
 
 use crossbeam_channel as channel;
 
-use crate::UnwrapOrExit;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SocketMessage {
     Start,
@@ -74,16 +72,11 @@ impl SocketListener {
 
         // Remove stale socket file if exists
         if path.exists() {
-            std::fs::remove_file(&path).unwrap_or_exit(&format!(
-                "failed to remove stale socket at {} - check permissions or if another daemon is running",
-                path.display()
-            ));
+            std::fs::remove_file(&path).expect("failed to remove stale socket - check permissions");
         }
 
-        let listener = UnixListener::bind(&path).unwrap_or_exit(&format!(
-            "failed to bind socket at {} - check directory permissions",
-            path.display()
-        ));
+        let listener =
+            UnixListener::bind(&path).expect("failed to bind socket - check directory permissions");
 
         Self {
             listener,
