@@ -7,11 +7,10 @@ export CARGO_HOME = $(CURDIR)/debian/cargo
 	dh $@
 
 override_dh_auto_configure:
-	# Initialize git submodules
 	git submodule update --init --recursive
 
 override_dh_auto_build:
-	cargo build --release
+	cargo build --release --features full
 
 override_dh_auto_install:
 	install -D -m 755 target/release/whispermed $(CURDIR)/debian/whisperme/usr/bin/whispermed

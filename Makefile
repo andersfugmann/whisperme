@@ -114,6 +114,7 @@ clean: ## Clean build artifacts
 
 .PHONY: deb
 deb: submodules ## Build Debian package
+	rm -f debian/debhelper-build-stamp
 	dpkg-buildpackage -nc -us -uc -b
 	@ls -la ../whisperme_*.deb 2>/dev/null
 

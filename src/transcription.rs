@@ -144,7 +144,7 @@ fn process_audio(
             total_samples as f32 / SAMPLE_RATE as f32
         );
 
-        // Todo
+        // Todo:
         // Should hold all segments not emitted.
         // When getting new segments, test if the segment has been extended
         // and reuse previously calculated segment if the additional tokens are silence.
