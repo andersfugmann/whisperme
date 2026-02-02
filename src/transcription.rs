@@ -111,13 +111,8 @@ fn process_audio(
             audio_buffer.resize(MIN_AUDIO_SAMPLES, 0.0);
         }
 
-        if language.is_none() {
-            let (detected_lang, confidence) = if  config.continuous_transcription {
-                detect_language(ctx, &audio_buffer)
-            } else {
-                // Skip language detection if text streaming is disabled
-                ("auto".to_string(), 1.0)
-            };
+        if language.is_none() && config.continuous_transcription {
+            let (detected_lang, confidence) = detect_language(ctx, &audio_buffer);
             if confidence >= config.language_confidence || !recording {
                 println!(
                     "*** => Language detected: {} (confidence: {:.0}%)",
@@ -130,8 +125,6 @@ fn process_audio(
                 continue;
             }
         }
-        let lang = language.as_ref().unwrap();
-
         // Text segments can be into the future!
         let emit_threshold_ms: usize = if current_audio_duration_ms < config.emit_grace_ms {
             0
@@ -152,7 +145,8 @@ fn process_audio(
         // Example: Input one, two, thee, <silence>
         // Transcribed 1, 2, 3.
         // Transcribed 1, 2, 3, 4, 5.
-        let last_emitted_end_ms = transcribe(ctx, &audio_buffer, lang).as_iter().fold(
+        println!("Transcribe!");
+        let last_emitted_end_ms = transcribe(ctx, &audio_buffer, &language).as_iter().fold(
             0,
             |acc: usize, segment: WhisperSegment| {
                 let start_ms = segment.start_timestamp() as usize * 10;
@@ -239,18 +233,18 @@ fn detect_language(ctx: &WhisperContext, audio: &[f32]) -> (String, f32) {
 }
 
 /// Transcribes audio buffer and returns segments with timestamps.
-fn transcribe(ctx: &WhisperContext, audio: &[f32], language: &str) -> WhisperState {
+fn transcribe(ctx: &WhisperContext, audio: &[f32], language: &Option<String>) -> WhisperState {
     let mut state = ctx.create_state().unwrap();
     let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-    params.set_language(Some(language));
     params.set_print_special(false);
     params.set_print_progress(false);
     params.set_print_realtime(false);
     params.set_print_timestamps(false);
     params.set_split_on_word(true);
     params.set_token_timestamps(true);
+    params.set_detect_language(false);
+    params.set_language(language.as_deref());
     state.full(params, audio).unwrap();
-
     state
 }
 

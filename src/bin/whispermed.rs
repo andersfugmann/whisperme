@@ -50,14 +50,14 @@ fn main() {
             SocketEvent::Command(SocketMessage::Stop) => {
                 capture.map(|c| {
                     drop(c);
-                    println!("Recording stopped, transcribing...");
+                    println!("Recording stopped.");
                 });
                 None
             }
             SocketEvent::Command(SocketMessage::Toggle) => match capture {
                 Some(c) => {
                     drop(c);
-                    println!("Recording stopped, transcribing...");
+                    println!("Recording stopped.");
                     None
                 }
                 None => Some(start_recording(
