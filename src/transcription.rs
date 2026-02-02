@@ -112,7 +112,12 @@ fn process_audio(
         }
 
         if language.is_none() {
-            let (detected_lang, confidence) = detect_language(ctx, &audio_buffer);
+            let (detected_lang, confidence) = if  config.continuous_transcription {
+                detect_language(ctx, &audio_buffer)
+            } else {
+                // Skip language detection if text streaming is disabled
+                ("auto".to_string(), 1.0)
+            };
             if confidence >= config.language_confidence || !recording {
                 println!(
                     "*** => Language detected: {} (confidence: {:.0}%)",
