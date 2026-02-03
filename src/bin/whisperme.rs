@@ -64,6 +64,41 @@ const DEFAULT_EMIT_GRACE_MS: usize = 1200;
 const DEFAULT_LANGUAGE_CONFIDENCE: f32 = 0.7;
 const DEFAULT_SILENCE_THRESHOLD_DBFS: f32 = -60.0;
 
+enum Command {
+    Start,
+    Stop,
+    Toggle,
+    Status,
+    Config,
+}
+
+impl Command {
+    fn parse(s: &str) -> Self {
+        match s {
+            "start" => Self::Start,
+            "stop" => Self::Stop,
+            "toggle" => Self::Toggle,
+            "status" => Self::Status,
+            "config" => Self::Config,
+            _ => {
+                eprintln!("Unknown command: {s}");
+                eprintln!("Usage: whisperme <start|stop|toggle|status|config>");
+                std::process::exit(1);
+            }
+        }
+    }
+
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::Start => "start",
+            Self::Stop => "stop",
+            Self::Toggle => "toggle",
+            Self::Status => "status",
+            Self::Config => "config",
+        }
+    }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
 
@@ -72,23 +107,17 @@ fn main() {
         std::process::exit(1);
     }
 
-    let command = &args[1];
+    let command = Command::parse(&args[1]);
 
-    match command.as_str() {
-        "start" | "stop" | "toggle" => {
-            send_command(command);
+    match command {
+        Command::Start | Command::Stop | Command::Toggle => {
+            send_command(command.as_str());
         }
-        "status" => {
-            if let Some(response) = send_command(command) {
-                println!("{response}");
-            }
+        Command::Status => {
+            let response = send_command(command.as_str());
+            println!("{response}");
         }
-        "config" => run_config_gui(),
-        _ => {
-            eprintln!("Unknown command: {command}");
-            eprintln!("Usage: whisperme <start|stop|toggle|status|config>");
-            std::process::exit(1);
-        }
+        Command::Config => run_config_gui(),
     }
 }
 

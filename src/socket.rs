@@ -133,22 +133,30 @@ impl Drop for SocketListener {
 }
 
 /// Send a command to the daemon and optionally get a response.
-pub fn send_command(command: &str) -> Option<String> {
+/// Panics if the socket doesn't exist or connection fails.
+/// Returns response for status command, empty string for other commands.
+pub fn send_command(command: &str) -> String {
     let path = socket_path();
 
     if !path.exists() {
-        return None;
+        panic!(
+            "Socket not found at {}. Is whispermed running?",
+            path.display()
+        );
     }
 
-    let mut stream = UnixStream::connect(&path).ok()?;
-    writeln!(stream, "{command}").ok()?;
+    let mut stream =
+        UnixStream::connect(&path).expect("Failed to connect to daemon");
+    writeln!(stream, "{command}").expect("Failed to send command");
 
     if command == "status" {
         let mut reader = BufReader::new(stream);
         let mut response = String::new();
-        reader.read_line(&mut response).ok()?;
-        Some(response.trim().to_string())
+        reader
+            .read_line(&mut response)
+            .expect("Failed to read response");
+        response.trim().to_string()
     } else {
-        None
+        String::new()
     }
 }
