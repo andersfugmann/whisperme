@@ -126,7 +126,7 @@ bindsym F12 exec whisperme toggle
 
 ---
 
-## Generic: Using xdotool for Testing
+## Manual Testing
 
 Quick test without configuring hotkeys:
 
@@ -139,40 +139,6 @@ whisperme start
 # speak...
 whisperme stop
 ```
-
----
-
-## Troubleshooting
-
-### Command not found
-
-Ensure `whisperme` is in your PATH:
-
-```bash
-# Add to ~/.bashrc or ~/.zshrc
-export PATH="$PATH:/path/to/whisperme/target/release"
-```
-
-### Socket connection refused
-
-Daemon not running. The client silently does nothing in this case.
-
-Start the daemon:
-```bash
-whispermed &
-```
-
-Or enable autostart (see INSTALL.md).
-
-### Hotkey not working
-
-1. Check daemon is running: `pgrep whispermed`
-2. Test command manually: `whisperme status` (prints "recording" or "idle" if daemon running, nothing if not)
-3. Check hotkey daemon is running: `pgrep sxhkd`
-4. Check for conflicts with existing shortcuts
-5. Verify daemon has socket: `ls $XDG_RUNTIME_DIR/whisperme.sock`
-
-**Note:** If the daemon is not running, `whisperme` commands silently do nothing. This is intentional - hotkeys won't cause errors if you haven't started the daemon.
 
 ---
 
