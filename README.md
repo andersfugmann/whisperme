@@ -4,11 +4,13 @@ Linux speech-to-text using OpenAI Whisper. Press a hotkey, speak, release to tra
 
 ## Features
 
-- Local Whisper inference (tiny to large-v3 models)
+- Local Whisper inference with Vulkan acceleration (tiny to large-v3 models)
+- PipeWire audio capture
 - RNNoise background noise removal
 - Auto language detection or manual selection
-- Text injection via libxdo (X11)
-- Allow Hotkey-triggered transciption (Handled by the system)
+- Multiple output methods: xdo (X11), ydotool (X11/Wayland), clipboard
+- GUI configuration tool (`whisperme config`)
+- Recording indicator with frequency visualization
 
 ## Components
 
@@ -17,16 +19,10 @@ Linux speech-to-text using OpenAI Whisper. Press a hotkey, speak, release to tra
 | `whispermed` | Daemon for recording and transcription |
 | `whisperme` | CLI to control the daemon (start/stop/toggle/status/config) |
 
-## Pipeline
-
-```
-Hotkey -> PipeWire -> RNNoise -> Whisper -> libxdo -> Text
-```
-
 ## Build Dependencies
 
 ```bash
-sudo apt install libpipewire-0.3-dev libclang-dev libvulkan-dev glslc libxdo-dev
+sudo make deps
 ```
 
 ## Building
@@ -113,17 +109,7 @@ Output methods:
 sudo apt install ydotool
 
 # Enable and start the systemd service
-sudo systemctl enable ydotoold
-sudo systemctl start ydotoold
-
-# Allow your user to access the socket
-sudo usermod -aG input $USER
-# Log out and back in for group change to take effect
-```
-
-Alternatively, run ydotoold manually with permissive socket:
-```bash
-sudo ydotoold --socket-perm 0666 &
+sudo systemctl --user enable ydotoold --now
 ```
 
 **ydotool keyboard layout:** When using `ydotool`, set `keyboard_layout` to match your system layout. Use `auto` to detect from localectl or setxkbmap. Common layouts: `us`, `dk`, `de`, `gb`, `fr`, `es`.
@@ -147,7 +133,7 @@ language_confidence = 0.7
 silence_threshold_dbfs = -60
 
 [output]
-method = xdo
+method = ydotool
 keyboard_layout = auto
 ```
 
