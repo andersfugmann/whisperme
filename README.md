@@ -1,6 +1,6 @@
 # WhisperMe
 
-Linux speech-to-text using OpenAI Whisper. Press a hotkey, speak, release to transcribe into any application.
+Linux speech-to-text using OpenAI Whisper. Press a hotkey to start recording, press again to transcribe into any application.
 
 ## Features
 
@@ -33,11 +33,11 @@ make build
 
 To build with specific output methods:
 ```bash
-cargo build --no-default-features                    # print only
-cargo build --features xdo                           # xdo (default)
-cargo build --features clipboard                     # clipboard
-cargo build --features uinput                        # uinput (Wayland)
-cargo build --features "xdo,clipboard,uinput"        # all methods
+make build FEATURES=                              # print only
+make build FEATURES=xdo                           # xdo (default)
+make build FEATURES=clipboard                     # clipboard
+make build FEATURES=ydotool                       # ydotool (Wayland)
+make build FEATURES="xdo,clipboard,ydotool"       # all methods
 ```
 
 ## Testing

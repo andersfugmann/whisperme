@@ -6,34 +6,18 @@ This document describes how to install and set up WhisperMe.
 
 ## Installation
 
-### Step 1: Install System Dependencies
+### From Source
 
-**Debian / Ubuntu:**
-```bash
-sudo apt update
-sudo apt install xdotool
-```
-
-**Arch Linux:**
-```bash
-sudo pacman -S xdotool
-```
-
-**Fedora:**
-```bash
-sudo dnf install xdotool
-```
-
-### Step 2: Install WhisperMe
-
-**From source:**
 ```bash
 # Clone repository
-git clone https://github.com/youruser/whisperme.git
+git clone https://github.com/andersfugmann/whisperme.git
 cd whisperme
 
+# Install build dependencies
+sudo make deps
+
 # Build release binaries
-cargo build --release
+make release
 
 # Install to ~/.local/bin (optional)
 mkdir -p ~/.local/bin
@@ -43,6 +27,12 @@ cp target/release/whisperme ~/.local/bin/
 # Ensure ~/.local/bin is in PATH
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
 source ~/.bashrc
+```
+
+### From Debian Package
+
+```bash
+sudo apt install ./whisperme_*.deb
 ```
 
 ### Configure WhisperMe
@@ -69,9 +59,9 @@ whispermed &
 ### Test Recording
 
 1. Open a text editor or terminal
-2. Press and hold your hotkey (e.g., Super+Shift+Space)
+2. Press your hotkey (e.g., F12) to start recording
 3. Speak into your microphone
-4. Release the hotkey
+4. Press the hotkey again to stop recording
 5. Text should appear in the focused input text field
 
 ### Check Status

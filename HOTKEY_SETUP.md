@@ -13,9 +13,10 @@ WhisperMe uses a socket-based control system, allowing any hotkey daemon or desk
 
 2. Configure your hotkey tool to run:
    ```bash
-   whisperme start   # On key press
-   whisperme stop    # On key release
+   whisperme toggle   # Press to start/stop recording
    ```
+
+**Example:** Bind F12 to toggle recording on and off.
 
 **Note:** Hold-to-record (key press to start, key release to stop) only works when `continuous_transcription` is disabled in your config. With continuous transcription enabled, text is typed while you're still holding the hotkey, which interferes with keyboard input. Use toggle mode or disable continuous transcription for hold-to-record.
 
@@ -43,22 +44,8 @@ sudo dnf install sxhkd
 Edit `~/.config/sxhkd/sxhkdrc`:
 
 ```
-# Hold to record, release to stop
-super + shift + space
-  whisperme start
-
-@super + shift + space
-  whisperme stop
-```
-
-The `@` prefix means "on key release".
-
-### Toggle Mode (Alternative)
-
-If you prefer press-once-to-start, press-again-to-stop:
-
-```
-super + alt + space
+# Toggle recording with F12
+F12
   whisperme toggle
 ```
 
@@ -80,27 +67,23 @@ pkill sxhkd && sxhkd &
 
 1. Open **Settings → Keyboard → Keyboard Shortcuts**
 2. Scroll to bottom, click **Custom Shortcuts**
-3. Add two shortcuts:
-   - Name: `WhisperMe Start`, Command: `whisperme start`, Shortcut: your choice
-   - Name: `WhisperMe Stop`, Command: `whisperme stop`, Shortcut: your choice
+3. Add shortcut:
+   - Name: `WhisperMe Toggle`, Command: `whisperme toggle`, Shortcut: F12
 
 ### Using gsettings (CLI)
 
 ```bash
-# Example: Bind to Super+Shift+Space
+# Bind F12 to toggle recording
 gsettings set org.gnome.settings-daemon.plugins.media-keys custom-keybindings \
-  "['/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/whisperme-start/', \
-    '/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/whisperme-stop/']"
+  "['/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/whisperme-toggle/']"
 
-gsettings set org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/whisperme-start/ \
-  name 'WhisperMe Start'
-gsettings set org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/whisperme-start/ \
-  command 'whisperme start'
-gsettings set org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/whisperme-start/ \
-  binding '<Super><Shift>space'
+gsettings set org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/whisperme-toggle/ \
+  name 'WhisperMe Toggle'
+gsettings set org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/whisperme-toggle/ \
+  command 'whisperme toggle'
+gsettings set org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/whisperme-toggle/ \
+  binding 'F12'
 ```
-
-**Note:** GNOME doesn't support key-release bindings, so use toggle mode or separate keys for start/stop.
 
 ---
 
@@ -110,13 +93,13 @@ gsettings set org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:/or
 
 1. Open **System Settings → Shortcuts → Custom Shortcuts**
 2. Click **Edit → New → Global Shortcut → Command/URL**
-3. Set trigger and command
+3. Set trigger to F12 and command to `whisperme toggle`
 
 ### Using kwriteconfig5 (CLI)
 
 ```bash
 kwriteconfig5 --file kglobalshortcutsrc --group whisperme \
-  --key start "whisperme start,none,WhisperMe Start"
+  --key toggle "whisperme toggle,F12,WhisperMe Toggle"
 ```
 
 ---
@@ -126,15 +109,9 @@ kwriteconfig5 --file kglobalshortcutsrc --group whisperme \
 Edit `~/.config/hypr/hyprland.conf`:
 
 ```
-# Hold to record
-bind = SUPER SHIFT, space, exec, whisperme start
-bindr = SUPER SHIFT, space, exec, whisperme stop
-
-# Or toggle mode
-bind = SUPER ALT, space, exec, whisperme toggle
+# Toggle recording with F12
+bind = , F12, exec, whisperme toggle
 ```
-
-`bindr` triggers on key release.
 
 ---
 
@@ -143,11 +120,9 @@ bind = SUPER ALT, space, exec, whisperme toggle
 Edit `~/.config/i3/config` or `~/.config/sway/config`:
 
 ```
-# Toggle mode (i3/sway don't support key release)
-bindsym $mod+Shift+space exec whisperme toggle
+# Toggle recording with F12
+bindsym F12 exec whisperme toggle
 ```
-
-For hold-to-record on i3, use sxhkd alongside i3.
 
 ---
 
