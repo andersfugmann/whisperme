@@ -1,3 +1,29 @@
+whisperme (0.1.0) unstable; urgency=medium
+
+  * Add missing dependencies
+  * Only do audio detection in streaming mode
+  * Dont do audio detection when not in streaming mode
+  * Simplify
+  * Use whisper 1.8.3
+  * Fix rebuilding of debian package
+  * Support wayland/x11 better and dont steel focus on X11
+  * Simplify audio stop by returning a handle
+  * Change general api and sample flow
+  * Fixes
+  * Wire up
+  * Simplify interface
+  * Format
+  * Fixes
+  * Improve debug
+  * Add config options for ydo tool
+  * Fixes
+  * Fix clipboard by making it global (to keep state) and add clipboard test
+  * Simplify/Generalize test injector tests
+  * Better code
+  * Add ydotool with proper keymapping
+
+ -- GitHub Actions <github-actions[bot]@users.noreply.github.com>  Tue, 03 Feb 2026 19:10:54 +0000
+
 whisperme (0.0.5) unstable; urgency=medium
 
   * Update debian package creation
