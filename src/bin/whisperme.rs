@@ -403,7 +403,7 @@ impl eframe::App for ConfigApp {
                     ui.end_row();
 
                     ui.label("Silence threshold (dBFS):").on_hover_text(
-                        "RMS threshold in dBFS. Segments below this level are discarded.",
+                        "Threshold in dBFS. Segments below this level are discarded.",
                     );
                     ui.add(
                         egui::DragValue::new(&mut self.silence_threshold_dbfs)

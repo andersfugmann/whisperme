@@ -85,13 +85,13 @@ Available models: tiny, tiny.en, base, base.en, small, small.en, medium, medium.
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `continuous_transcription` | `false` | Enable continuous transcription (experimental, lower quality) |
+| `continuous_transcription` | `false` | ⚠️ **Experimental** - Enable continuous transcription (lower quality) |
 | `transcription_interval_ms` | `1000` | How often to run transcription on buffered audio (ms), when continuous transcription is enabled |
 | `emit_grace_ms` | `1200` | Delay before emitting text to avoid incomplete words (ms) |
 | `language_confidence` | `0.7` | Minimum confidence for language detection (0.0-1.0) |
-| `silence_threshold_dbfs` | `-80` | RMS threshold in dBFS per transcribed segment. Segments below this are discarded |
+| `silence_threshold_dbfs` | `-60` | Threshold in dBFS per transcribed segment. Segments below this are discarded |
 
-**Note:** Continuous transcription is experimental. It provides real-time visibility of what's being transcribed, but produces lower quality output compared to transcribing all audio after recording ends (the default).
+**⚠️ Experimental:** Continuous transcription provides real-time visibility of what's being transcribed, but produces lower quality output compared to transcribing all audio after recording ends (the default). Use with caution.
 
 ### [output]
 
@@ -144,7 +144,7 @@ continuous_transcription = false
 transcription_interval_ms = 1000
 emit_grace_ms = 1200
 language_confidence = 0.7
-silence_threshold_dbfs = -80
+silence_threshold_dbfs = -60
 
 [output]
 method = xdo
