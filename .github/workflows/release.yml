@@ -9,12 +9,27 @@ on:
         type: string
 
 jobs:
-  release:
+  build-deb:
+    strategy:
+      matrix:
+        include:
+          - distro: ubuntu:24.04
+            label: ubuntu-24.04
+          - distro: debian:trixie
+            label: debian-stable
+          - distro: debian:sid
+            label: debian-unstable
+
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    container:
+      image: ${{ matrix.distro }}
 
     steps:
+      - name: Install git and checkout dependencies
+        run: |
+          apt-get update
+          apt-get install -y git ca-certificates curl
+
       - uses: actions/checkout@v4
         with:
           submodules: recursive
@@ -22,14 +37,21 @@ jobs:
 
       - name: Install system dependencies
         run: |
-          sudo apt-get update
-          make deps
+          apt-get install -y \
+            devscripts equivs build-essential fakeroot \
+            libpipewire-0.3-dev libclang-dev libvulkan-dev \
+            libxkbcommon-dev glslc libxdo-dev cmake pkg-config
 
-      - name: Setup Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Install Rust via rustup
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
       - name: Update debian changelog
         run: |
+          # Mark git repo as safe (container runs as root)
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
           # Get the previous tag
           PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
 
@@ -55,17 +77,71 @@ jobs:
           mv /tmp/new_changelog debian/changelog
 
       - name: Build debian package
-        run: make deb
-
-      - name: Test install debian package
         run: |
-          sudo apt-get install -y ../whisperme_${{ inputs.version }}_*.deb
+          rm -f debian/debhelper-build-stamp
+          dpkg-buildpackage -nc -us -uc -b
+
+      - name: Rename package with distro label
+        run: |
+          cd ..
+          for f in whisperme_${{ inputs.version }}_*.deb; do
+            newname="${f%.deb}~${{ matrix.label }}.deb"
+            mv "$f" "$newname"
+          done
+
+      - name: Upload deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: deb-${{ matrix.label }}
+          path: ../whisperme_*~${{ matrix.label }}.deb
+
+  release:
+    needs: build-deb
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Download all deb artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Test install Ubuntu package
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ./dist/whisperme_${{ inputs.version }}_*~ubuntu-24.04.deb
           whisperme --help || true
 
       - name: Configure git
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Update debian changelog
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -n "$PREV_TAG" ]; then
+            CHANGES=$(git log --pretty=format:"  * %s" "$PREV_TAG"..HEAD)
+          else
+            CHANGES=$(git log --pretty=format:"  * %s")
+          fi
+          cat > /tmp/changelog_entry << EOF
+          whisperme (${{ inputs.version }}) unstable; urgency=medium
+
+          ${CHANGES}
+
+           -- GitHub Actions <github-actions[bot]@users.noreply.github.com>  $(date -R)
+
+          EOF
+          cat /tmp/changelog_entry debian/changelog > /tmp/new_changelog
+          mv /tmp/new_changelog debian/changelog
 
       - name: Commit changelog and create tag
         run: |
@@ -81,4 +157,4 @@ jobs:
           tag_name: v${{ inputs.version }}
           name: Release v${{ inputs.version }}
           generate_release_notes: true
-          files: ../whisperme_${{ inputs.version }}_*.deb
+          files: dist/whisperme_*.deb
