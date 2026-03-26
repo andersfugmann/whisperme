@@ -11,6 +11,7 @@ on:
 jobs:
   build-deb:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - distro: ubuntu:24.04
@@ -40,7 +41,9 @@ jobs:
           apt-get install -y \
             devscripts equivs build-essential fakeroot \
             libpipewire-0.3-dev libclang-dev libvulkan-dev \
-            libxkbcommon-dev glslc libxdo-dev cmake pkg-config
+            libxkbcommon-dev libxdo-dev cmake pkg-config
+          # glslc is packaged differently across distros
+          apt-get install -y glslc || apt-get install -y glslang-tools
 
       - name: Install Rust via rustup
         run: |
@@ -79,7 +82,7 @@ jobs:
       - name: Build debian package
         run: |
           rm -f debian/debhelper-build-stamp
-          dpkg-buildpackage -nc -us -uc -b
+          dpkg-buildpackage -nc -us -uc -b -d
 
       - name: Rename package with distro label
         run: |
