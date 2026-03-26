@@ -84,19 +84,20 @@ jobs:
           rm -f debian/debhelper-build-stamp
           dpkg-buildpackage -nc -us -uc -b -d
 
-      - name: Rename package with distro label
+      - name: Collect and rename package
         run: |
-          cd ..
-          for f in whisperme_${{ inputs.version }}_*.deb; do
-            newname="${f%.deb}~${{ matrix.label }}.deb"
-            mv "$f" "$newname"
+          mkdir -p dist
+          for f in ../whisperme_${{ inputs.version }}_*.deb; do
+            base=$(basename "$f")
+            newname="${base%.deb}~${{ matrix.label }}.deb"
+            cp "$f" "dist/$newname"
           done
 
       - name: Upload deb artifact
         uses: actions/upload-artifact@v4
         with:
           name: deb-${{ matrix.label }}
-          path: ../whisperme_*~${{ matrix.label }}.deb
+          path: dist/*.deb
 
   release:
     needs: build-deb
