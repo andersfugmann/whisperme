@@ -179,11 +179,19 @@ jobs:
               "temperature": 0.3
             }')
 
-            RESPONSE=$(curl -sf -X POST "https://models.github.com/inference/chat/completions" \
+            HTTP_CODE=$(curl -s -o /tmp/api_response.json -w '%{http_code}' \
+              -X POST "https://models.github.com/inference/chat/completions" \
               -H "Authorization: Bearer $COPILOT_TOKEN" \
               -H "Content-Type: application/json" \
-              -d "$BODY" 2>&1) && \
-            NOTES=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // empty') || true
+              -d "$BODY") || true
+
+            echo "GitHub Models API returned HTTP $HTTP_CODE"
+            if [ "$HTTP_CODE" = "200" ]; then
+              NOTES=$(jq -r '.choices[0].message.content // empty' /tmp/api_response.json) || true
+            else
+              echo "API error response:"
+              cat /tmp/api_response.json 2>/dev/null || true
+            fi
           fi
 
           # Fallback: formatted commit list
