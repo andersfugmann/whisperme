@@ -1,3 +1,17 @@
+whisperme (0.2.0) unstable; urgency=medium
+
+  * Fix release artifact upload: avoid relative paths
+  * Fix release workflow: skip rustup build-dep check, handle glslc
+  * Extend release workflow for Debian stable and unstable
+  * Update whisper.cpp submodule from v1.8.3 to v1.8.4
+  * Improve the client
+  * Update documentation
+  * Update documentation
+  * Update documentation
+  * Update readme
+
+ -- GitHub Actions <github-actions[bot]@users.noreply.github.com>  Thu, 26 Mar 2026 23:13:16 +0000
+
 whisperme (0.1.0) unstable; urgency=medium
 
   * Add missing dependencies
