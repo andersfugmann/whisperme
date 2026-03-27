@@ -148,46 +148,31 @@ jobs:
           mv /tmp/new_changelog debian/changelog
 
       - name: Generate release notes
-        id: release_notes
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
 
-          # Build commit list (always available)
           if [ -n "$PREV_TAG" ]; then
             COMMITS=$(git log --pretty=format:"- %s" "$PREV_TAG"..HEAD \
               | grep -v "^- Release v" || true)
+            LINK="**Full Changelog**: https://github.com/${{ github.repository }}/compare/${PREV_TAG}...v${{ inputs.version }}"
           else
             COMMITS=$(git log --pretty=format:"- %s" \
               | grep -v "^- Release v" || true)
+            LINK=""
           fi
 
-          # Try GitHub's release notes generator for PR-based notes
-          GH_NOTES=""
-          if [ -n "$PREV_TAG" ]; then
-            GH_NOTES=$(gh api repos/${{ github.repository }}/releases/generate-notes \
-              -f tag_name="v${{ inputs.version }}" \
-              -f previous_tag_name="$PREV_TAG" \
-              -f target_commitish="main" \
-              --jq '.body' 2>/dev/null) || true
-          fi
+          {
+            echo "## What's Changed"
+            echo ""
+            if [ -n "$COMMITS" ]; then
+              echo "$COMMITS"
+            else
+              echo "- Maintenance and infrastructure updates"
+            fi
+            echo ""
+            [ -n "$LINK" ] && echo "$LINK"
+          } > /tmp/release_notes.md
 
-          # Combine: use GitHub notes if they have content beyond the changelog link
-          HAS_CONTENT=$(echo "$GH_NOTES" | grep -c "^[*-]" || true)
-          if [ "$HAS_CONTENT" -gt 0 ]; then
-            NOTES="$GH_NOTES"
-          else
-            NOTES=$(printf "## What's Changed\n\n%s\n" "$COMMITS")
-          fi
-
-          # Append full changelog link
-          if [ -n "$PREV_TAG" ]; then
-            NOTES=$(printf "%s\n\n**Full Changelog**: https://github.com/${{ github.repository }}/compare/%s...v%s" \
-              "$NOTES" "$PREV_TAG" "${{ inputs.version }}")
-          fi
-
-          echo "$NOTES" > /tmp/release_notes.md
           echo "Generated release notes:"
           cat /tmp/release_notes.md
 
