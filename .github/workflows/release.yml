@@ -173,8 +173,6 @@ jobs:
             [ -n "$LINK" ] && echo "$LINK"
           } > /tmp/release_notes.md
 
-          echo "Generated release notes:"
-          cat /tmp/release_notes.md
 
       - name: Commit changelog and create tag
         run: |
