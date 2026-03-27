@@ -154,29 +154,39 @@ jobs:
         run: |
           PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
 
-          # Use GitHub's built-in release notes generator
+          # Build commit list (always available)
           if [ -n "$PREV_TAG" ]; then
-            NOTES=$(gh api repos/${{ github.repository }}/releases/generate-notes \
+            COMMITS=$(git log --pretty=format:"- %s" "$PREV_TAG"..HEAD \
+              | grep -v "^- Release v" || true)
+          else
+            COMMITS=$(git log --pretty=format:"- %s" \
+              | grep -v "^- Release v" || true)
+          fi
+
+          # Try GitHub's release notes generator for PR-based notes
+          GH_NOTES=""
+          if [ -n "$PREV_TAG" ]; then
+            GH_NOTES=$(gh api repos/${{ github.repository }}/releases/generate-notes \
               -f tag_name="v${{ inputs.version }}" \
               -f previous_tag_name="$PREV_TAG" \
               -f target_commitish="main" \
-              --jq '.body') || true
+              --jq '.body' 2>/dev/null) || true
           fi
 
-          # Fallback: formatted commit list
-          if [ -z "${NOTES:-}" ]; then
-            echo "Falling back to commit-based release notes..."
-            if [ -n "$PREV_TAG" ]; then
-              COMMITS=$(git log --pretty=format:"- %s (%an)" "$PREV_TAG"..HEAD)
-              RANGE="$PREV_TAG → v${{ inputs.version }}"
-            else
-              COMMITS=$(git log --pretty=format:"- %s (%an)")
-              RANGE="initial → v${{ inputs.version }}"
-            fi
-            NOTES=$(printf "## Changes (%s)\n\n%s" "$RANGE" "$COMMITS")
+          # Combine: use GitHub notes if they have content beyond the changelog link
+          HAS_CONTENT=$(echo "$GH_NOTES" | grep -c "^[*-]" || true)
+          if [ "$HAS_CONTENT" -gt 0 ]; then
+            NOTES="$GH_NOTES"
+          else
+            NOTES=$(printf "## What's Changed\n\n%s\n" "$COMMITS")
           fi
 
-          # Write to file (multi-line safe)
+          # Append full changelog link
+          if [ -n "$PREV_TAG" ]; then
+            NOTES=$(printf "%s\n\n**Full Changelog**: https://github.com/${{ github.repository }}/compare/%s...v%s" \
+              "$NOTES" "$PREV_TAG" "${{ inputs.version }}")
+          fi
+
           echo "$NOTES" > /tmp/release_notes.md
           echo "Generated release notes:"
           cat /tmp/release_notes.md
