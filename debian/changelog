@@ -1,5 +1,15 @@
 whisperme (0.2.1) unstable; urgency=medium
 
+  * Fix GitHub Models API endpoint for release notes
+  * Release v0.2.1
+  * Fix release notes: show API response for debugging
+  * Release v0.2.1
+  * Add AI-generated release notes via GitHub Models API
+
+ -- GitHub Actions <github-actions[bot]@users.noreply.github.com>  Fri, 27 Mar 2026 00:06:50 +0000
+
+whisperme (0.2.1) unstable; urgency=medium
+
   * Fix release notes: show API response for debugging
   * Release v0.2.1
   * Add AI-generated release notes via GitHub Models API
