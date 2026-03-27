@@ -150,53 +150,29 @@ jobs:
       - name: Generate release notes
         id: release_notes
         env:
-          COPILOT_TOKEN: ${{ secrets.COPILOT_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+
+          # Use GitHub's built-in release notes generator
           if [ -n "$PREV_TAG" ]; then
-            COMMITS=$(git log --pretty=format:"- %s (%an)" "$PREV_TAG"..HEAD)
-            RANGE="$PREV_TAG → v${{ inputs.version }}"
-          else
-            COMMITS=$(git log --pretty=format:"- %s (%an)")
-            RANGE="initial → v${{ inputs.version }}"
-          fi
-
-          if [ -n "$COPILOT_TOKEN" ]; then
-            echo "Using GitHub Models API to generate release notes..."
-            PROMPT="Write concise release notes in markdown for whisperme v${{ inputs.version }} ($RANGE).
-          whisperme is a Linux speech-to-text daemon using whisper.cpp with Vulkan GPU acceleration.
-          Group changes under headings (e.g. ## Features, ## Bug Fixes, ## Infrastructure).
-          Omit trivial or duplicate entries. Do not include a title heading.
-          Here are the commits:
-          $COMMITS"
-
-            BODY=$(jq -n --arg prompt "$PROMPT" '{
-              "model": "gpt-4o-mini",
-              "messages": [
-                {"role": "system", "content": "You write clear, professional release notes for open-source projects. Output markdown only."},
-                {"role": "user", "content": $prompt}
-              ],
-              "temperature": 0.3
-            }')
-
-            HTTP_CODE=$(curl -s -o /tmp/api_response.json -w '%{http_code}' \
-              -X POST "https://models.inference.ai.azure.com/chat/completions" \
-              -H "Authorization: Bearer $COPILOT_TOKEN" \
-              -H "Content-Type: application/json" \
-              -d "$BODY") || true
-
-            echo "GitHub Models API returned HTTP $HTTP_CODE"
-            if [ "$HTTP_CODE" = "200" ]; then
-              NOTES=$(jq -r '.choices[0].message.content // empty' /tmp/api_response.json) || true
-            else
-              echo "API error response:"
-              cat /tmp/api_response.json 2>/dev/null || true
-            fi
+            NOTES=$(gh api repos/${{ github.repository }}/releases/generate-notes \
+              -f tag_name="v${{ inputs.version }}" \
+              -f previous_tag_name="$PREV_TAG" \
+              -f target_commitish="main" \
+              --jq '.body') || true
           fi
 
           # Fallback: formatted commit list
           if [ -z "${NOTES:-}" ]; then
             echo "Falling back to commit-based release notes..."
+            if [ -n "$PREV_TAG" ]; then
+              COMMITS=$(git log --pretty=format:"- %s (%an)" "$PREV_TAG"..HEAD)
+              RANGE="$PREV_TAG → v${{ inputs.version }}"
+            else
+              COMMITS=$(git log --pretty=format:"- %s (%an)")
+              RANGE="initial → v${{ inputs.version }}"
+            fi
             NOTES=$(printf "## Changes (%s)\n\n%s" "$RANGE" "$COMMITS")
           fi
 
