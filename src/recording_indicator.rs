@@ -122,21 +122,29 @@ impl App {
     fn show_window(&self, session: &RecordingSession) {
         let Some(window) = &self.window else { return };
 
+        // Show first, then position — some WMs ignore position on hidden windows
+        window.set_visible(true);
+
         // Position based on monitor size (in logical coordinates)
         if let Some(monitor) = window.current_monitor() {
             let scale = window.scale_factor();
             let monitor_size = monitor.size();
+            let monitor_pos = monitor.position();
             let logical_w = monitor_size.width as f64 / scale;
             let logical_h = monitor_size.height as f64 / scale;
+            let offset_x = monitor_pos.x as f64 / scale;
+            let offset_y = monitor_pos.y as f64 / scale;
             let pos = calculate_position(
                 session.position,
                 logical_w as f32,
                 logical_h as f32,
             );
-            window.set_outer_position(LogicalPosition::new(pos.0, pos.1));
+            window.set_outer_position(LogicalPosition::new(
+                pos.0 as f64 + offset_x,
+                pos.1 as f64 + offset_y,
+            ));
         }
 
-        window.set_visible(true);
         window.request_redraw();
     }
 
