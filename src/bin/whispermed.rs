@@ -9,7 +9,7 @@ use whisperme::fanout;
 use whisperme::injection;
 use whisperme::socket::{RecordingState, SocketEvent, SocketListener, SocketMessage};
 use whisperme::transcription::Transcription;
-use whisperme::ui::{self, UiSender};
+use whisperme::ui::{self, UiHandle};
 
 fn main() {
     let config = Config::load();
@@ -29,7 +29,7 @@ fn main() {
     });
 
     // Spawn persistent UI thread (if UI is enabled)
-    let ui_tx = ui::spawn(config.ui.position);
+    let ui_handle = ui::spawn(config.ui.position);
 
     println!("Listening for commands...");
 
@@ -44,7 +44,7 @@ fn main() {
                     &transcription,
                     Some(ui_position),
                     &output_config,
-                    &ui_tx,
+                    &ui_handle,
                 ))
             }),
             SocketEvent::Command(SocketMessage::Stop) => {
@@ -64,7 +64,7 @@ fn main() {
                     &transcription,
                     Some(ui_position),
                     &output_config,
-                    &ui_tx,
+                    &ui_handle,
                 )),
             },
             SocketEvent::Command(SocketMessage::Status) => capture,
@@ -86,7 +86,7 @@ fn start_recording(
     transcription: &Transcription,
     ui_position: Option<UiPosition>,
     output_config: &OutputConfig,
-    ui_tx: &UiSender,
+    ui_handle: &UiHandle,
 ) -> AudioCapture {
     // Start audio capture
     let (audio_rx, capture) = audio_capture::start();
@@ -99,9 +99,7 @@ fn start_recording(
         Some(ui_position) => {
             let (transcription_rx, ui_audio_rx) = fanout::duplicate(processed_rx);
             // Send show request to persistent UI thread
-            ui_tx
-                .send(ui::UiRequest::Show(ui_audio_rx, ui_position))
-                .ok();
+            ui_handle.show(ui_audio_rx, ui_position);
             transcription_rx
         }
         None => processed_rx,

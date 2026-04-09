@@ -5,7 +5,7 @@
 //! - Recording indicator windows are created/destroyed dynamically via child viewports
 //! - This avoids winit's "EventLoop can't be recreated" limitation
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::{self, JoinHandle};
 use std::time::Instant;
 
@@ -23,8 +23,26 @@ pub enum UiRequest {
     Show(AudioReceiver, UiPosition),
 }
 
-pub type UiSender = channel::Sender<UiRequest>;
-pub type UiReceiver = channel::Receiver<UiRequest>;
+type UiSender = channel::Sender<UiRequest>;
+type UiReceiver = channel::Receiver<UiRequest>;
+
+/// Handle for sending requests to the UI thread.
+/// Wakes the event loop on send so it doesn't need to poll.
+#[derive(Clone)]
+pub struct UiHandle {
+    tx: UiSender,
+    ctx: Arc<OnceLock<egui::Context>>,
+}
+
+impl UiHandle {
+    pub fn show(&self, audio_rx: AudioReceiver, position: UiPosition) {
+        if self.tx.send(UiRequest::Show(audio_rx, position)).is_ok() {
+            if let Some(ctx) = self.ctx.get() {
+                ctx.request_repaint();
+            }
+        }
+    }
+}
 
 /// Window dimensions
 const WINDOW_WIDTH: f32 = 50.0;
@@ -68,22 +86,25 @@ fn bar_color() -> egui::Color32 {
 }
 
 /// Spawn the persistent UI thread. Call once at daemon startup.
-/// Returns a sender to request showing the recording indicator.
-pub fn spawn(position: UiPosition) -> UiSender {
+/// Returns a handle to request showing the recording indicator.
+pub fn spawn(position: UiPosition) -> UiHandle {
     let (tx, rx) = channel::unbounded::<UiRequest>();
+    let ctx = Arc::new(OnceLock::new());
+    let ctx_clone = Arc::clone(&ctx);
     thread::spawn(move || {
-        run_ui_loop(rx, position);
+        run_ui_loop(rx, ctx_clone, position);
     });
-    tx
+    UiHandle { tx, ctx }
 }
 
 /// Legacy API for showing a one-shot recording indicator.
-/// Deprecated: prefer spawn() + send UiRequest::Show.
+/// Deprecated: prefer spawn() + UiHandle::show().
 pub fn show(audio_rx: AudioReceiver, position: UiPosition) -> JoinHandle<()> {
     thread::spawn(move || {
         let (tx, rx) = channel::unbounded::<UiRequest>();
+        let ctx = Arc::new(OnceLock::new());
         tx.send(UiRequest::Show(audio_rx, position)).ok();
-        run_ui_loop(rx, position);
+        run_ui_loop(rx, ctx, position);
     })
 }
 
@@ -91,7 +112,7 @@ fn is_wayland() -> bool {
     std::env::var("WAYLAND_DISPLAY").is_ok()
 }
 
-fn run_ui_loop(request_rx: UiReceiver, default_position: UiPosition) {
+fn run_ui_loop(request_rx: UiReceiver, ctx_shared: Arc<OnceLock<egui::Context>>, default_position: UiPosition) {
     use eframe::EventLoopBuilderHook;
 
     // Allow running on non-main thread (required for our thread-based architecture)
@@ -111,7 +132,7 @@ fn run_ui_loop(request_rx: UiReceiver, default_position: UiPosition) {
         ..Default::default()
     };
 
-    let app = UiController::new(request_rx, default_position);
+    let app = UiController::new(request_rx, ctx_shared, default_position);
 
     if let Err(e) = eframe::run_native(
         "WhisperMe",
@@ -129,14 +150,16 @@ const INDICATOR_VIEWPORT_ID: &str = "recording_indicator";
 /// Creates/destroys recording indicator viewports on demand.
 struct UiController {
     request_rx: UiReceiver,
+    ctx_shared: Arc<OnceLock<egui::Context>>,
     /// Active recording session state, if any
     active_session: Option<Arc<Mutex<RecordingSession>>>,
 }
 
 impl UiController {
-    fn new(request_rx: UiReceiver, _default_position: UiPosition) -> Self {
+    fn new(request_rx: UiReceiver, ctx_shared: Arc<OnceLock<egui::Context>>, _default_position: UiPosition) -> Self {
         Self {
             request_rx,
+            ctx_shared,
             active_session: None,
         }
     }
@@ -174,11 +197,13 @@ impl eframe::App for UiController {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Publish context so UiHandle can wake us on demand
+        let _ = self.ctx_shared.set(ctx.clone());
+
         self.check_requests();
         self.update_session();
 
-        // Request periodic repaint to check for new requests
-        ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        // No timer-based repaint when idle — UiHandle wakes us via ctx.request_repaint()
 
         // Show recording indicator viewport if we have an active session
         if let Some(session) = &self.active_session {
