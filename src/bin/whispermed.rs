@@ -9,7 +9,7 @@ use whisperme::fanout;
 use whisperme::injection;
 use whisperme::socket::{RecordingState, SocketEvent, SocketListener, SocketMessage};
 use whisperme::transcription::Transcription;
-use whisperme::ui::{self, UiHandle};
+use whisperme::ui;
 
 fn main() {
     let config = Config::load();
@@ -28,9 +28,6 @@ fn main() {
         listener.run();
     });
 
-    // Spawn persistent UI thread (if UI is enabled)
-    let ui_handle = ui::spawn(config.ui.position);
-
     println!("Listening for commands...");
 
     // Event loop with immutable state transitions
@@ -44,7 +41,6 @@ fn main() {
                     &transcription,
                     Some(ui_position),
                     &output_config,
-                    &ui_handle,
                 ))
             }),
             SocketEvent::Command(SocketMessage::Stop) => {
@@ -64,7 +60,6 @@ fn main() {
                     &transcription,
                     Some(ui_position),
                     &output_config,
-                    &ui_handle,
                 )),
             },
             SocketEvent::Command(SocketMessage::Status) => capture,
@@ -86,7 +81,6 @@ fn start_recording(
     transcription: &Transcription,
     ui_position: Option<UiPosition>,
     output_config: &OutputConfig,
-    ui_handle: &UiHandle,
 ) -> AudioCapture {
     // Start audio capture
     let (audio_rx, capture) = audio_capture::start();
@@ -94,12 +88,11 @@ fn start_recording(
     // Create processed audio channel
     let processed_rx = audio_processor::start(audio_rx);
 
-    // Spawn fanout thread: distribute processed audio to transcription and UI
+    // Fanout processed audio to transcription and UI
     let transcription_rx = match ui_position {
         Some(ui_position) => {
             let (transcription_rx, ui_audio_rx) = fanout::duplicate(processed_rx);
-            // Send show request to persistent UI thread
-            ui_handle.show(ui_audio_rx, ui_position);
+            ui::show(ui_audio_rx, ui_position);
             transcription_rx
         }
         None => processed_rx,
