@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use circular_buffer::CircularBuffer;
 use crossbeam_channel as channel;
 use winit::application::ApplicationHandler;
-use winit::dpi::{PhysicalPosition, PhysicalSize};
+use winit::dpi::{LogicalPosition, LogicalSize, PhysicalSize};
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
 use winit::window::{Window, WindowAttributes, WindowId, WindowLevel};
@@ -122,15 +122,18 @@ impl App {
     fn show_window(&self, session: &RecordingSession) {
         let Some(window) = &self.window else { return };
 
-        // Position based on monitor size
+        // Position based on monitor size (in logical coordinates)
         if let Some(monitor) = window.current_monitor() {
+            let scale = window.scale_factor();
             let monitor_size = monitor.size();
+            let logical_w = monitor_size.width as f64 / scale;
+            let logical_h = monitor_size.height as f64 / scale;
             let pos = calculate_position(
                 session.position,
-                monitor_size.width as f32,
-                monitor_size.height as f32,
+                logical_w as f32,
+                logical_h as f32,
             );
-            window.set_outer_position(PhysicalPosition::new(pos.0 as i32, pos.1 as i32));
+            window.set_outer_position(LogicalPosition::new(pos.0, pos.1));
         }
 
         window.set_visible(true);
@@ -148,26 +151,33 @@ impl App {
         let Some(surface) = &mut self.surface else {
             return;
         };
+        let Some(window) = &self.window else { return };
 
-        let width = WINDOW_WIDTH;
-        let height = WINDOW_HEIGHT;
+        // Render at the actual physical pixel size (accounts for HiDPI scaling)
+        let physical: PhysicalSize<u32> = window.inner_size();
+        let width = physical.width;
+        let height = physical.height;
+        let scale = window.scale_factor() as f32;
 
         let Some(mut pixmap) = tiny_skia::Pixmap::new(width, height) else {
             return;
         };
 
-        // Draw background rounded rect
-        let bg_path = rounded_rect_path(0.0, 0.0, width as f32, height as f32, CORNER_RADIUS);
+        // Scale all drawing to match physical pixels
+        let transform = tiny_skia::Transform::from_scale(scale, scale);
+
+        // Draw background rounded rect (in logical coordinates)
+        let bg_path = rounded_rect_path(
+            0.0,
+            0.0,
+            WINDOW_WIDTH as f32,
+            WINDOW_HEIGHT as f32,
+            CORNER_RADIUS,
+        );
         let mut bg_paint = tiny_skia::Paint::default();
         bg_paint.set_color_rgba8(BG_COLOR.0, BG_COLOR.1, BG_COLOR.2, BG_COLOR.3);
         bg_paint.anti_alias = true;
-        pixmap.fill_path(
-            &bg_path,
-            &bg_paint,
-            tiny_skia::FillRule::Winding,
-            tiny_skia::Transform::identity(),
-            None,
-        );
+        pixmap.fill_path(&bg_path, &bg_paint, tiny_skia::FillRule::Winding, transform, None);
 
         // Draw pulsing recording dot
         let elapsed = session.start_time.elapsed().as_secs_f32();
@@ -175,7 +185,7 @@ impl App {
         let pulse_opacity = 0.5 + 0.5 * pulse_phase.sin();
 
         let dot_cx = PADDING + DOT_RADIUS;
-        let dot_cy = height as f32 / 2.0;
+        let dot_cy = WINDOW_HEIGHT as f32 / 2.0;
         let dot_path = circle_path(dot_cx, dot_cy, DOT_RADIUS);
         let mut dot_paint = tiny_skia::Paint::default();
         dot_paint.set_color_rgba8(
@@ -185,17 +195,11 @@ impl App {
             (pulse_opacity * 255.0) as u8,
         );
         dot_paint.anti_alias = true;
-        pixmap.fill_path(
-            &dot_path,
-            &dot_paint,
-            tiny_skia::FillRule::Winding,
-            tiny_skia::Transform::identity(),
-            None,
-        );
+        pixmap.fill_path(&dot_path, &dot_paint, tiny_skia::FillRule::Winding, transform, None);
 
         // Draw frequency bars
         let bars_start_x = dot_cx + DOT_RADIUS + PADDING;
-        let bars_center_y = height as f32 / 2.0;
+        let bars_center_y = WINDOW_HEIGHT as f32 / 2.0;
         let mut bar_paint = tiny_skia::Paint::default();
         bar_paint.set_color_rgba8(BAR_COLOR.0, BAR_COLOR.1, BAR_COLOR.2, 0xFF);
         bar_paint.anti_alias = true;
@@ -213,7 +217,7 @@ impl App {
                     &bar_path,
                     &bar_paint,
                     tiny_skia::FillRule::Winding,
-                    tiny_skia::Transform::identity(),
+                    transform,
                     None,
                 );
             });
@@ -250,7 +254,7 @@ impl App {
 impl ApplicationHandler<UserEvent> for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let mut attrs = WindowAttributes::default()
-            .with_inner_size(PhysicalSize::new(WINDOW_WIDTH, WINDOW_HEIGHT))
+            .with_inner_size(LogicalSize::new(WINDOW_WIDTH as f32, WINDOW_HEIGHT as f32))
             .with_decorations(false)
             .with_transparent(true)
             .with_resizable(false)
