@@ -1,3 +1,11 @@
+whisperme (0.3.0) unstable; urgency=medium
+
+  * Fix high idle CPU: replace UI polling with event-driven wakeup
+  * Hide root viewport to eliminate compositor wakeups
+  * Update dependencies (egui 0.34, wgpu 29, and others)
+
+ -- GitHub Actions <github-actions[bot]@users.noreply.github.com>  Wed, 09 Apr 2026 20:55:00 +0000
+
 whisperme (0.2.1) unstable; urgency=medium
 
   * Simplify release notes: use commit-based changelog

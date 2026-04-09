@@ -275,12 +275,15 @@ impl ConfigApp {
 }
 
 impl eframe::App for ConfigApp {
-    fn update(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
+    fn logic(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
         if self.is_downloading() {
             ctx.request_repaint();
         }
+    }
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+    fn ui(&mut self, ui: &mut egui::Ui, _: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
+        egui::CentralPanel::default().show_inside(ui, |ui| {
             ui.heading("WhisperMe Configuration");
             ui.add_space(12.0);
 

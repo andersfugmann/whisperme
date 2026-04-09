@@ -191,11 +191,13 @@ impl UiController {
 }
 
 impl eframe::App for UiController {
+    fn ui(&mut self, _ui: &mut egui::Ui, _frame: &mut eframe::Frame) {}
+
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
         [0.0, 0.0, 0.0, 0.0]
     }
 
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Publish context so UiHandle can wake us on demand
         let _ = self.ctx_shared.set(ctx.clone());
 
@@ -238,6 +240,7 @@ fn build_viewport(width: f32, height: f32) -> egui::ViewportBuilder {
     }
 }
 
+#[expect(deprecated)] // CentralPanel::show(ctx) has no non-deprecated replacement for viewport callbacks
 fn render_recording_indicator(ctx: &egui::Context, session: &Arc<Mutex<RecordingSession>>) {
     let mut session = session.lock().unwrap();
 
