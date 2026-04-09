@@ -4,6 +4,7 @@ Priority: optional
 Maintainer: Anders Fugmann <anders@fugmann.net>
 Build-Depends: debhelper (>= 12),
                rustup,
+               mold,
                libpipewire-0.3-dev,
                libclang-dev,
                libvulkan-dev,
