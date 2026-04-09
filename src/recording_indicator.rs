@@ -20,7 +20,7 @@ use crate::spectrum::{FFT_SIZE, band_db_levels};
 /// Show the recording indicator for the duration of the audio stream.
 /// Spawns a UI thread that runs until the audio channel closes.
 /// Returns a join handle for the UI thread.
-pub fn show(audio_rx: AudioReceiver, position: UiPosition) -> JoinHandle<()> {
+pub fn start(audio_rx: AudioReceiver, position: UiPosition) -> JoinHandle<()> {
     std::thread::spawn(move || {
         run_ui(audio_rx, position);
     })

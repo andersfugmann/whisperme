@@ -6,7 +6,7 @@ pub mod injection;
 pub mod socket;
 pub mod spectrum;
 pub mod transcription;
-pub mod ui;
+pub mod recording_indicator;
 
 #[cfg(feature = "ydotool")]
 pub mod ydotool;

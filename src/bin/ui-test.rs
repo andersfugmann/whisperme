@@ -7,7 +7,7 @@ use std::time::Duration;
 use crossbeam_channel as channel;
 
 use whisperme::config::UiPosition;
-use whisperme::ui;
+use whisperme::recording_indicator;
 
 fn main() {
     // Parse position from command line or default to BottomRight
@@ -63,7 +63,7 @@ fn main() {
         }
     });
 
-    ui::show(audio_rx, position);
+    recording_indicator::start(audio_rx, position);
 
     // Wait 10 seconds then exit
     thread::sleep(Duration::from_secs(10));

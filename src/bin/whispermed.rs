@@ -9,7 +9,7 @@ use whisperme::fanout;
 use whisperme::injection;
 use whisperme::socket::{RecordingState, SocketEvent, SocketListener, SocketMessage};
 use whisperme::transcription::Transcription;
-use whisperme::ui;
+use whisperme::recording_indicator;
 
 fn main() {
     let config = Config::load();
@@ -92,7 +92,7 @@ fn start_recording(
     let transcription_rx = match ui_position {
         Some(ui_position) => {
             let (transcription_rx, ui_audio_rx) = fanout::duplicate(processed_rx);
-            ui::show(ui_audio_rx, ui_position);
+            recording_indicator::start(ui_audio_rx, ui_position);
             transcription_rx
         }
         None => processed_rx,
