@@ -1,34 +1,74 @@
-//! UI module: recording indicator window with frequency visualization.
+//! Recording indicator: frequency visualization overlay during recording.
 //!
-//! Creates a fresh egui event loop per recording session.
-//! The UI thread and all associated resources (wgpu, GPU context) are
-//! created when recording starts and destroyed when it stops,
-//! keeping the idle daemon lightweight.
+//! A persistent UI thread runs a winit event loop. It sleeps with zero CPU
+//! when idle (ControlFlow::Wait), and wakes via EventLoopProxy when a new
+//! recording starts. Rendering uses tiny-skia (CPU) + softbuffer (present).
 
-use std::thread::JoinHandle;
-use std::time::Instant;
+use std::num::NonZeroU32;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use circular_buffer::CircularBuffer;
 use crossbeam_channel as channel;
-use eframe::egui;
+use winit::application::ApplicationHandler;
+use winit::dpi::{PhysicalPosition, PhysicalSize};
+use winit::event::WindowEvent;
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
+use winit::window::{Window, WindowAttributes, WindowId, WindowLevel};
 
 use crate::audio_capture::AudioReceiver;
 use crate::audio_processor::SAMPLE_RATE;
 use crate::config::UiPosition;
 use crate::spectrum::{FFT_SIZE, band_db_levels};
 
-/// Show the recording indicator for the duration of the audio stream.
-/// Spawns a UI thread that runs until the audio channel closes.
-/// Returns a join handle for the UI thread.
-pub fn start(audio_rx: AudioReceiver, position: UiPosition) -> JoinHandle<()> {
+/// Event sent from Handle to the UI thread.
+enum UserEvent {
+    NewSession(AudioReceiver, UiPosition),
+}
+
+/// Handle for sending recording sessions to the persistent UI thread.
+#[derive(Clone)]
+pub struct Handle {
+    proxy: EventLoopProxy<UserEvent>,
+}
+
+impl Handle {
+    pub fn start(&self, audio_rx: AudioReceiver, position: UiPosition) {
+        let _ = self.proxy.send_event(UserEvent::NewSession(audio_rx, position));
+    }
+}
+
+/// Spawn the persistent UI thread. Call once at daemon startup.
+pub fn spawn() -> Handle {
+    let (proxy_tx, proxy_rx) = channel::bounded(1);
+
     std::thread::spawn(move || {
-        run_ui(audio_rx, position);
-    })
+        let mut builder = EventLoop::<UserEvent>::with_user_event();
+
+        match is_wayland() {
+            true => {
+                use winit::platform::wayland::EventLoopBuilderExtWayland;
+                builder.with_any_thread(true);
+            }
+            false => {
+                use winit::platform::x11::EventLoopBuilderExtX11;
+                builder.with_any_thread(true);
+            }
+        }
+
+        let event_loop = builder.build().expect("failed to create event loop");
+        proxy_tx.send(event_loop.create_proxy()).unwrap();
+        let mut app = App::new();
+        event_loop.run_app(&mut app).expect("event loop error");
+    });
+
+    let proxy = proxy_rx.recv().expect("UI thread failed to start");
+    Handle { proxy }
 }
 
 /// Window dimensions
-const WINDOW_WIDTH: f32 = 50.0;
-const WINDOW_HEIGHT: f32 = 32.0;
+const WINDOW_WIDTH: u32 = 50;
+const WINDOW_HEIGHT: u32 = 32;
 const CORNER_RADIUS: f32 = 10.0;
 const PADDING: f32 = 6.0;
 
@@ -50,164 +90,283 @@ const SMOOTHING_ALPHA: f32 = 0.3;
 /// Screen margin
 const SCREEN_MARGIN: f32 = 16.0;
 
-/// Background opacity (0 = fully transparent, 255 = fully opaque)
-const BG_OPACITY: u8 = 240;
+/// Background color (RGBA)
+const BG_COLOR: (u8, u8, u8, u8) = (0x6A, 0x6E, 0x72, 0xF0);
+/// Recording dot color (RGB)
+const DOT_COLOR: (u8, u8, u8) = (0xFF, 0x20, 0x20);
+/// Bar color (RGB)
+const BAR_COLOR: (u8, u8, u8) = (0xF0, 0xF0, 0xF4);
 
-/// Colors
-fn bg_color() -> egui::Color32 {
-    // Aluminium grey (slightly darker)
-    egui::Color32::from_rgba_unmultiplied(0x6A, 0x6E, 0x72, BG_OPACITY)
-}
-fn dot_color() -> egui::Color32 {
-    // Brighter red
-    egui::Color32::from_rgb(0xFF, 0x20, 0x20)
-}
-fn bar_color() -> egui::Color32 {
-    // Silver white
-    egui::Color32::from_rgb(0xF0, 0xF0, 0xF4)
-}
+/// Frame interval (~30 fps)
+const FRAME_INTERVAL: Duration = Duration::from_millis(33);
 
 fn is_wayland() -> bool {
     std::env::var("WAYLAND_DISPLAY").is_ok()
 }
 
-fn run_ui(audio_rx: AudioReceiver, position: UiPosition) {
-    use eframe::EventLoopBuilderHook;
-
-    let event_loop_builder: EventLoopBuilderHook = Box::new(|builder| {
-        match is_wayland() {
-            true => winit::platform::wayland::EventLoopBuilderExtWayland::with_any_thread(builder, true),
-            false => winit::platform::x11::EventLoopBuilderExtX11::with_any_thread(builder, true),
-        };
-    });
-
-    let viewport = build_viewport(WINDOW_WIDTH, WINDOW_HEIGHT);
-    let native_options = eframe::NativeOptions {
-        viewport,
-        event_loop_builder: Some(event_loop_builder),
-        ..Default::default()
-    };
-
-    let app = RecordingIndicator::new(audio_rx, position);
-
-    if let Err(e) = eframe::run_native(
-        "WhisperMe",
-        native_options,
-        Box::new(move |_cc| Ok(Box::new(app))),
-    ) {
-        eprintln!("UI error: {e}");
-    }
+struct App {
+    window: Option<Arc<Window>>,
+    surface: Option<softbuffer::Surface<Arc<Window>, Arc<Window>>>,
+    session: Option<RecordingSession>,
 }
 
-/// Recording indicator app. Renders directly in the root viewport.
-/// Closes when the audio channel disconnects.
-struct RecordingIndicator {
-    session: RecordingSession,
-}
-
-impl RecordingIndicator {
-    fn new(audio_rx: AudioReceiver, position: UiPosition) -> Self {
+impl App {
+    fn new() -> Self {
         Self {
-            session: RecordingSession::new(audio_rx, position),
+            window: None,
+            surface: None,
+            session: None,
         }
     }
-}
 
-impl eframe::App for RecordingIndicator {
-    fn ui(&mut self, _ui: &mut egui::Ui, _frame: &mut eframe::Frame) {}
+    fn show_window(&self, session: &RecordingSession) {
+        let Some(window) = &self.window else { return };
 
-    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        [0.0, 0.0, 0.0, 0.0]
+        // Position based on monitor size
+        if let Some(monitor) = window.current_monitor() {
+            let monitor_size = monitor.size();
+            let pos = calculate_position(
+                session.position,
+                monitor_size.width as f32,
+                monitor_size.height as f32,
+            );
+            window.set_outer_position(PhysicalPosition::new(pos.0 as i32, pos.1 as i32));
+        }
+
+        window.set_visible(true);
+        window.request_redraw();
     }
 
-    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.session.process_audio();
+    fn hide_window(&self) {
+        if let Some(window) = &self.window {
+            window.set_visible(false);
+        }
+    }
 
-        if self.session.channel_closed {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+    fn render(&mut self) {
+        let Some(session) = &self.session else { return };
+        let Some(surface) = &mut self.surface else {
             return;
-        }
+        };
 
-        // Position window on first frame
-        if !self.session.positioned {
-            if let Some(monitor_size) = ctx.input(|i| i.viewport().monitor_size) {
-                let pos = self.session.calculate_position(monitor_size);
-                ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(pos));
-                self.session.positioned = true;
-            }
-        }
+        let width = WINDOW_WIDTH;
+        let height = WINDOW_HEIGHT;
 
-        // Request repaint at ~30 FPS for animation
-        ctx.request_repaint_after(std::time::Duration::from_millis(33));
+        let Some(mut pixmap) = tiny_skia::Pixmap::new(width, height) else {
+            return;
+        };
 
-        let elapsed = self.session.start_time.elapsed().as_secs_f32();
+        // Draw background rounded rect
+        let bg_path = rounded_rect_path(0.0, 0.0, width as f32, height as f32, CORNER_RADIUS);
+        let mut bg_paint = tiny_skia::Paint::default();
+        bg_paint.set_color_rgba8(BG_COLOR.0, BG_COLOR.1, BG_COLOR.2, BG_COLOR.3);
+        bg_paint.anti_alias = true;
+        pixmap.fill_path(
+            &bg_path,
+            &bg_paint,
+            tiny_skia::FillRule::Winding,
+            tiny_skia::Transform::identity(),
+            None,
+        );
+
+        // Draw pulsing recording dot
+        let elapsed = session.start_time.elapsed().as_secs_f32();
         let pulse_phase = (elapsed / DOT_PULSE_PERIOD) * 2.0 * std::f32::consts::PI;
         let pulse_opacity = 0.5 + 0.5 * pulse_phase.sin();
 
-        #[expect(deprecated)] // CentralPanel::show(ctx) has no non-deprecated replacement yet
-        egui::CentralPanel::default()
-            .frame(egui::Frame::NONE)
-            .show(ctx, |ui| {
-                render_bars(ui, &self.session, pulse_opacity);
+        let dot_cx = PADDING + DOT_RADIUS;
+        let dot_cy = height as f32 / 2.0;
+        let dot_path = circle_path(dot_cx, dot_cy, DOT_RADIUS);
+        let mut dot_paint = tiny_skia::Paint::default();
+        dot_paint.set_color_rgba8(
+            DOT_COLOR.0,
+            DOT_COLOR.1,
+            DOT_COLOR.2,
+            (pulse_opacity * 255.0) as u8,
+        );
+        dot_paint.anti_alias = true;
+        pixmap.fill_path(
+            &dot_path,
+            &dot_paint,
+            tiny_skia::FillRule::Winding,
+            tiny_skia::Transform::identity(),
+            None,
+        );
+
+        // Draw frequency bars
+        let bars_start_x = dot_cx + DOT_RADIUS + PADDING;
+        let bars_center_y = height as f32 / 2.0;
+        let mut bar_paint = tiny_skia::Paint::default();
+        bar_paint.set_color_rgba8(BAR_COLOR.0, BAR_COLOR.1, BAR_COLOR.2, 0xFF);
+        bar_paint.anti_alias = true;
+
+        session
+            .bar_heights
+            .iter()
+            .enumerate()
+            .for_each(|(i, &bar_height)| {
+                let bar_x = bars_start_x + i as f32 * (BAR_WIDTH + BAR_GAP);
+                let bar_y = bars_center_y - bar_height / 2.0;
+                let bar_path =
+                    rounded_rect_path(bar_x, bar_y, BAR_WIDTH, bar_height, BAR_CORNER_RADIUS);
+                pixmap.fill_path(
+                    &bar_path,
+                    &bar_paint,
+                    tiny_skia::FillRule::Winding,
+                    tiny_skia::Transform::identity(),
+                    None,
+                );
             });
+
+        // Present via softbuffer
+        let Ok(()) = surface.resize(
+            NonZeroU32::new(width).unwrap(),
+            NonZeroU32::new(height).unwrap(),
+        ) else {
+            return;
+        };
+        let Ok(mut buffer) = surface.buffer_mut() else {
+            return;
+        };
+
+        // Copy tiny-skia RGBA pixels to softbuffer ARGB u32 format
+        pixmap
+            .pixels()
+            .iter()
+            .enumerate()
+            .for_each(|(i, pixel)| {
+                buffer[i] = u32::from_be_bytes([
+                    pixel.alpha(),
+                    pixel.red(),
+                    pixel.green(),
+                    pixel.blue(),
+                ]);
+            });
+
+        let _ = buffer.present();
     }
 }
 
-fn build_viewport(width: f32, height: f32) -> egui::ViewportBuilder {
-    let viewport = egui::ViewportBuilder::default()
-        .with_inner_size([width, height])
-        .with_decorations(false)
-        .with_always_on_top()
-        .with_titlebar_shown(false)
-        .with_resizable(false)
-        .with_transparent(true)
-        .with_mouse_passthrough(true)
-        .with_close_button(false);
+impl ApplicationHandler<UserEvent> for App {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        let mut attrs = WindowAttributes::default()
+            .with_inner_size(PhysicalSize::new(WINDOW_WIDTH, WINDOW_HEIGHT))
+            .with_decorations(false)
+            .with_transparent(true)
+            .with_resizable(false)
+            .with_visible(false)
+            .with_window_level(WindowLevel::AlwaysOnTop);
 
-    // X11-specific: set splash window type to avoid taskbar/focus
-    match is_wayland() {
-        false => viewport.with_window_type(egui::X11WindowType::Splash),
-        true => viewport,
+        // X11: set splash window type to avoid taskbar/focus
+        if !is_wayland() {
+            use winit::platform::x11::WindowAttributesExtX11;
+            attrs = attrs.with_x11_window_type(vec![winit::platform::x11::WindowType::Splash]);
+        }
+
+        let window = Arc::new(
+            event_loop
+                .create_window(attrs)
+                .expect("failed to create window"),
+        );
+        let _ = window.set_cursor_hittest(false);
+
+        let context =
+            softbuffer::Context::new(window.clone()).expect("failed to create softbuffer context");
+        let surface = softbuffer::Surface::new(&context, window.clone())
+            .expect("failed to create softbuffer surface");
+
+        self.window = Some(window);
+        self.surface = Some(surface);
+    }
+
+    fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: UserEvent) {
+        match event {
+            UserEvent::NewSession(audio_rx, position) => {
+                let session = RecordingSession::new(audio_rx, position);
+                self.show_window(&session);
+                self.session = Some(session);
+            }
+        }
+    }
+
+    fn window_event(
+        &mut self,
+        _event_loop: &ActiveEventLoop,
+        _id: WindowId,
+        event: WindowEvent,
+    ) {
+        match event {
+            WindowEvent::RedrawRequested => {
+                if let Some(session) = &mut self.session {
+                    session.process_audio();
+
+                    if session.channel_closed {
+                        self.session = None;
+                        self.hide_window();
+                        return;
+                    }
+
+                    self.render();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        match &self.session {
+            Some(_) => {
+                event_loop.set_control_flow(ControlFlow::WaitUntil(Instant::now() + FRAME_INTERVAL));
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
+            }
+            None => {
+                event_loop.set_control_flow(ControlFlow::Wait);
+            }
+        }
     }
 }
 
-fn render_bars(ui: &mut egui::Ui, session: &RecordingSession, pulse_opacity: f32) {
-    let painter = ui.painter();
-    let rect = ui.available_rect_before_wrap();
+// --- Geometry helpers ---
 
-    // Draw rounded background
-    painter.rect_filled(rect, CORNER_RADIUS, bg_color());
-
-    // Draw recording dot (pulsing)
-    let dot_center = egui::pos2(rect.left() + PADDING + DOT_RADIUS, rect.center().y);
-    let base_dot = dot_color();
-    let pulsing_dot = egui::Color32::from_rgba_unmultiplied(
-        base_dot.r(),
-        base_dot.g(),
-        base_dot.b(),
-        (pulse_opacity * 255.0) as u8,
-    );
-    painter.circle_filled(dot_center, DOT_RADIUS, pulsing_dot);
-
-    // Draw frequency bars
-    let bars_start_x = dot_center.x + DOT_RADIUS + PADDING;
-    let bars_center_y = rect.center().y;
-
-    session
-        .bar_heights
-        .iter()
-        .enumerate()
-        .for_each(|(i, &height)| {
-            let bar_x = bars_start_x + i as f32 * (BAR_WIDTH + BAR_GAP);
-            let bar_rect = egui::Rect::from_center_size(
-                egui::pos2(bar_x + BAR_WIDTH / 2.0, bars_center_y),
-                egui::vec2(BAR_WIDTH, height),
-            );
-            painter.rect_filled(bar_rect, BAR_CORNER_RADIUS, bar_color());
-        });
+fn rounded_rect_path(x: f32, y: f32, w: f32, h: f32, r: f32) -> tiny_skia::Path {
+    let r = r.min(w / 2.0).min(h / 2.0);
+    let mut pb = tiny_skia::PathBuilder::new();
+    pb.move_to(x + r, y);
+    pb.line_to(x + w - r, y);
+    pb.quad_to(x + w, y, x + w, y + r);
+    pb.line_to(x + w, y + h - r);
+    pb.quad_to(x + w, y + h, x + w - r, y + h);
+    pb.line_to(x + r, y + h);
+    pb.quad_to(x, y + h, x, y + h - r);
+    pb.line_to(x, y + r);
+    pb.quad_to(x, y, x + r, y);
+    pb.close();
+    pb.finish().expect("invalid rounded rect path")
 }
 
-/// State for an active recording session
+fn circle_path(cx: f32, cy: f32, r: f32) -> tiny_skia::Path {
+    let mut pb = tiny_skia::PathBuilder::new();
+    pb.push_circle(cx, cy, r);
+    pb.finish().expect("invalid circle path")
+}
+
+fn calculate_position(position: UiPosition, screen_w: f32, screen_h: f32) -> (f32, f32) {
+    let w = WINDOW_WIDTH as f32;
+    let h = WINDOW_HEIGHT as f32;
+    match position {
+        UiPosition::TopLeft => (SCREEN_MARGIN, SCREEN_MARGIN),
+        UiPosition::TopCenter => ((screen_w - w) / 2.0, SCREEN_MARGIN),
+        UiPosition::TopRight => (screen_w - w - SCREEN_MARGIN, SCREEN_MARGIN),
+        UiPosition::BottomLeft => (SCREEN_MARGIN, screen_h - h - SCREEN_MARGIN),
+        UiPosition::BottomCenter => ((screen_w - w) / 2.0, screen_h - h - SCREEN_MARGIN),
+        UiPosition::BottomRight => (screen_w - w - SCREEN_MARGIN, screen_h - h - SCREEN_MARGIN),
+    }
+}
+
+// --- Recording session ---
+
 struct RecordingSession {
     audio_rx: AudioReceiver,
     position: UiPosition,
@@ -215,7 +374,6 @@ struct RecordingSession {
     sample_buffer: CircularBuffer<FFT_SIZE, f32>,
     bar_heights: [f32; BAR_COUNT],
     channel_closed: bool,
-    positioned: bool,
 }
 
 impl RecordingSession {
@@ -227,7 +385,6 @@ impl RecordingSession {
             sample_buffer: CircularBuffer::new(),
             bar_heights: [BAR_MIN_HEIGHT; BAR_COUNT],
             channel_closed: false,
-            positioned: false,
         }
     }
 
@@ -260,31 +417,8 @@ impl RecordingSession {
         db_levels.iter().enumerate().for_each(|(i, &db)| {
             let normalized = ((db + 80.0) / 100.0).clamp(0.0, 1.0).powi(2);
             let target = BAR_MIN_HEIGHT + normalized * (BAR_MAX_HEIGHT - BAR_MIN_HEIGHT);
-            self.bar_heights[i] = self.bar_heights[i] * (1.0 - SMOOTHING_ALPHA) + target * SMOOTHING_ALPHA;
+            self.bar_heights[i] =
+                self.bar_heights[i] * (1.0 - SMOOTHING_ALPHA) + target * SMOOTHING_ALPHA;
         });
-    }
-
-    fn calculate_position(&self, monitor_size: egui::Vec2) -> egui::Pos2 {
-        let screen_w = monitor_size.x;
-        let screen_h = monitor_size.y;
-
-        match self.position {
-            UiPosition::TopLeft => egui::pos2(SCREEN_MARGIN, SCREEN_MARGIN),
-            UiPosition::TopCenter => egui::pos2((screen_w - WINDOW_WIDTH) / 2.0, SCREEN_MARGIN),
-            UiPosition::TopRight => {
-                egui::pos2(screen_w - WINDOW_WIDTH - SCREEN_MARGIN, SCREEN_MARGIN)
-            }
-            UiPosition::BottomLeft => {
-                egui::pos2(SCREEN_MARGIN, screen_h - WINDOW_HEIGHT - SCREEN_MARGIN)
-            }
-            UiPosition::BottomCenter => egui::pos2(
-                (screen_w - WINDOW_WIDTH) / 2.0,
-                screen_h - WINDOW_HEIGHT - SCREEN_MARGIN,
-            ),
-            UiPosition::BottomRight => egui::pos2(
-                screen_w - WINDOW_WIDTH - SCREEN_MARGIN,
-                screen_h - WINDOW_HEIGHT - SCREEN_MARGIN,
-            ),
-        }
     }
 }

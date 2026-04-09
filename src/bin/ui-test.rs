@@ -40,16 +40,18 @@ fn main() {
     println!("  Positions: top-left (tl), top-center (tc), top-right (tr),");
     println!("             bottom-left (bl), bottom-center (bc), bottom-right (br)");
 
+    // Spawn persistent UI thread
+    let ui_handle = recording_indicator::spawn();
+
     // Create a fake audio channel that sends silence
     let (audio_tx, audio_rx) = channel::unbounded::<f32>();
 
-    // Spawn audio generator thread (sends silence with occasional "activity")
+    // Spawn audio generator thread (sends sine wave to show bar activity)
     let audio_handle = thread::spawn(move || {
         let sample_rate = 16000;
         let mut phase: f32 = 0.0;
 
         loop {
-            // Generate a simple sine wave to show bar activity
             let sample =
                 (phase * 2.0 * std::f32::consts::PI * 440.0 / sample_rate as f32).sin() * 0.3;
             phase += 1.0;
@@ -58,12 +60,12 @@ fn main() {
                 break;
             }
 
-            // Simulate real-time audio rate
             thread::sleep(Duration::from_micros(1000000 / sample_rate as u64));
         }
     });
 
-    recording_indicator::start(audio_rx, position);
+    // Start recording indicator
+    ui_handle.start(audio_rx, position);
 
     // Wait 10 seconds then exit
     thread::sleep(Duration::from_secs(10));

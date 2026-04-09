@@ -26,6 +26,8 @@ spectrum-analyzer = "*"
 circular-buffer = "*"
 ureq = "*"
 winit = { version = "*", features = ["wayland", "x11"] }
+tiny-skia = "*"
+softbuffer = "*"
 rubato = "*"
 audioadapter = "*"
 audioadapter-buffers = "*"

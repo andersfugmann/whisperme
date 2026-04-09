@@ -19,6 +19,9 @@ fn main() {
     // Spawn transcription thread (loads model)
     let transcription = Transcription::new(&config.whisper, config.transcription);
 
+    // Spawn persistent UI thread
+    let ui_handle = recording_indicator::spawn();
+
     // Create socket event channel
     let (socket_tx, socket_rx) = channel::unbounded::<SocketEvent>();
 
@@ -39,7 +42,8 @@ fn main() {
             SocketEvent::Command(SocketMessage::Start) => capture.or_else(|| {
                 Some(start_recording(
                     &transcription,
-                    Some(ui_position),
+                    &ui_handle,
+                    ui_position,
                     &output_config,
                 ))
             }),
@@ -58,7 +62,8 @@ fn main() {
                 }
                 None => Some(start_recording(
                     &transcription,
-                    Some(ui_position),
+                    &ui_handle,
+                    ui_position,
                     &output_config,
                 )),
             },
@@ -79,7 +84,8 @@ fn main() {
 /// Returns AudioCapture handle - dropping it stops recording.
 fn start_recording(
     transcription: &Transcription,
-    ui_position: Option<UiPosition>,
+    ui_handle: &recording_indicator::Handle,
+    ui_position: UiPosition,
     output_config: &OutputConfig,
 ) -> AudioCapture {
     // Start audio capture
@@ -89,14 +95,9 @@ fn start_recording(
     let processed_rx = audio_processor::start(audio_rx);
 
     // Fanout processed audio to transcription and UI
-    let transcription_rx = match ui_position {
-        Some(ui_position) => {
-            let (transcription_rx, ui_audio_rx) = fanout::duplicate(processed_rx);
-            recording_indicator::start(ui_audio_rx, ui_position);
-            transcription_rx
-        }
-        None => processed_rx,
-    };
+    let (transcription_rx, ui_audio_rx) = fanout::duplicate(processed_rx);
+    ui_handle.start(ui_audio_rx, ui_position);
+
     println!("Recording started");
 
     // Send audio to transcription thread
