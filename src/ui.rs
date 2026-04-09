@@ -124,8 +124,7 @@ fn run_ui_loop(request_rx: UiReceiver, ctx_shared: Arc<OnceLock<egui::Context>>,
     });
 
     // Root viewport is invisible - we only show child viewports
-
-    let viewport = build_viewport(1.0, 1.0);
+    let viewport = build_viewport(1.0, 1.0).with_visible(false);
     let native_options = eframe::NativeOptions {
         viewport,
         event_loop_builder: Some(event_loop_builder),
