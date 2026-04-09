@@ -3,7 +3,7 @@
 WHISPER_DONT_GENERATE_BINDINGS = "1"
 
 [build]
-rustflags = []
+rustflags = ["-C", "link-arg=-fuse-ld=mold"]
 
 [rust-analyzer]
 cargo.features = ["full"]
