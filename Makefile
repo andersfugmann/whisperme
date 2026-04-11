@@ -113,10 +113,18 @@ clean: ## Clean build artifacts
 	rm -f debian/debhelper-build-stamp debian/files
 
 .PHONY: deb
-deb: submodules ## Build Debian package
+deb: ## Build Debian package
+deb: submodules
 	rm -f debian/debhelper-build-stamp
+	rm -f ../whisperme_*.deb
 	dpkg-buildpackage -nc -us -uc -b
 	@ls -la ../whisperme_*.deb 2>/dev/null
+
+install-deb: ## Build and install the debian pacakge
+install-deb: deb
+	sudo dpkg -i ../whisperme_*.deb
+	systemctl --user daemon-reload
+	systemctl --user restart whispermed.service
 
 .PHONY: help
 help: ## Show this help
