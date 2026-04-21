@@ -1,7 +1,7 @@
 # WhisperMe sxhkd configuration example
 # Copy to ~/.config/sxhkd/sxhkdrc and reload sxhkd with: pkill -USR1 sxhkd
 #
-# See HOTKEY_SETUP.md for more configuration options
+# See README.md for more configuration options
 
 # Hold Super+Shift+Space to record, release to stop
 super + shift + space
