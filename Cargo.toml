@@ -21,11 +21,12 @@ rust-ini = "*"
 pipewire = "*"
 nnnoiseless = "*"
 whisper-rs = { path = "vendor/whisper-rs", features = ["vulkan"] }
-eframe = "*"
+eframe = { version = "*", features = ["glow"] }
 spectrum-analyzer = "*"
 circular-buffer = "*"
 ureq = "*"
 winit = { version = "*", features = ["wayland", "x11"] }
+x11rb = { version = "0.13", features = ["randr"] }
 tiny-skia = "*"
 softbuffer = "*"
 rubato = "*"

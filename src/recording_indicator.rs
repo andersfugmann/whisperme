@@ -122,28 +122,32 @@ impl App {
     fn show_window(&self, session: &RecordingSession) {
         let Some(window) = &self.window else { return };
 
-        // Show first, then position — some WMs ignore position on hidden windows
+        // Show first, then position -- some WMs ignore position on hidden windows
         window.set_visible(true);
 
-        // Position based on monitor size (in logical coordinates)
-        if let Some(monitor) = window.current_monitor() {
-            let scale = window.scale_factor();
-            let monitor_size = monitor.size();
-            let monitor_pos = monitor.position();
-            let logical_w = monitor_size.width as f64 / scale;
-            let logical_h = monitor_size.height as f64 / scale;
-            let offset_x = monitor_pos.x as f64 / scale;
-            let offset_y = monitor_pos.y as f64 / scale;
-            let pos = calculate_position(
-                session.position,
-                logical_w as f32,
-                logical_h as f32,
-            );
-            window.set_outer_position(LogicalPosition::new(
-                pos.0 as f64 + offset_x,
-                pos.1 as f64 + offset_y,
-            ));
-        }
+        // Use cursor position to find the active monitor (x11rb/randr),
+        // falling back to winit's current_monitor.
+        let scale = window.scale_factor();
+        let (mon_x, mon_y, mon_w, mon_h) = crate::monitor::cursor_monitor()
+            .map(|m| (m.x as f64, m.y as f64, m.width as f64, m.height as f64))
+            .or_else(|| {
+                window.current_monitor().map(|m| {
+                    let s = m.size();
+                    let p = m.position();
+                    (p.x as f64, p.y as f64, s.width as f64, s.height as f64)
+                })
+            })
+            .unwrap_or((0.0, 0.0, 1920.0, 1080.0));
+
+        let logical_w = mon_w / scale;
+        let logical_h = mon_h / scale;
+        let offset_x = mon_x / scale;
+        let offset_y = mon_y / scale;
+        let pos = calculate_position(session.position, logical_w as f32, logical_h as f32);
+        window.set_outer_position(LogicalPosition::new(
+            pos.0 as f64 + offset_x,
+            pos.1 as f64 + offset_y,
+        ));
 
         window.request_redraw();
     }

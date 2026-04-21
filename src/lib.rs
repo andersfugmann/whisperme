@@ -3,6 +3,7 @@ pub mod audio_processor;
 pub mod config;
 pub mod fanout;
 pub mod injection;
+pub mod monitor;
 pub mod socket;
 pub mod spectrum;
 pub mod transcription;

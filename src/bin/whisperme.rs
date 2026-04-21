@@ -126,6 +126,7 @@ fn run_config_gui() {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([420.0, 580.0])
             .with_resizable(false),
+        renderer: eframe::Renderer::Glow,
         ..Default::default()
     };
     let _ = eframe::run_native(
