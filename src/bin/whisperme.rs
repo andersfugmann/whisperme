@@ -129,11 +129,17 @@ fn run_config_gui() {
         renderer: eframe::Renderer::Glow,
         ..Default::default()
     };
-    let _ = eframe::run_native(
+    match eframe::run_native(
         "WhisperMe Configuration",
         options,
         Box::new(|_| Ok(Box::new(ConfigApp::load()))),
-    );
+    ) {
+        Ok(()) => {}
+        Err(e) => {
+            eprintln!("Failed to open config GUI: {e}");
+            std::process::exit(1);
+        }
+    }
 }
 
 struct ConfigApp {
